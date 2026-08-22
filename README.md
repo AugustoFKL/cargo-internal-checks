@@ -102,6 +102,17 @@ That makes the default command suitable for CI without an additional `--check` f
 
 For each selected package, the checker recursively scans Rust files under the package directory. It does not follow symlinks and does not descend into Cargo's target directory or `.git`. Results are deduplicated, which also avoids duplicate checks when package roots overlap.
 
+## Releasing
+
+Releases are built by GitHub Actions when a tag matching `v*` is pushed. The tag must match the package version in `Cargo.toml`; for example, version `0.1.0` must be released with tag `v0.1.0`.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow publishes archives for Windows x86-64, macOS Intel, and macOS Apple Silicon. Each release also includes a `SHA256SUMS` file.
+
 ## Planned next step
 
 The natural v0.2 feature is `--fix`. The analyzer is deliberately separate from file discovery so the fixer can reuse the same classifications and violations while applying source-preserving textual edits instead of reprinting the `syn` AST.

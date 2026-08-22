@@ -57,7 +57,6 @@ enum ViolationKind {
     },
 }
 
-#[tracing::instrument(level = "trace", skip(config))]
 pub(crate) fn check_file(path: &Path, config: &Config) -> Result<Vec<Violation>> {
     let source = fs::read_to_string(path)
         .with_context(|| format!("failed to read Rust source `{}`", path.display()))?;

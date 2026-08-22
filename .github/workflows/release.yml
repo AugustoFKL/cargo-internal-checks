@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: cargo-item-order-x86_64-pc-windows-msvc.zip
+            executable: cargo-item-order.exe
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: cargo-item-order-x86_64-apple-darwin.tar.gz
+            executable: cargo-item-order
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            archive: cargo-item-order-aarch64-apple-darwin.tar.gz
+            executable: cargo-item-order
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Test
+        run: cargo test
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist
+          Compress-Archive `
+            -LiteralPath "target/${{ matrix.target }}/release/${{ matrix.executable }}" `
+            -DestinationPath "dist/${{ matrix.archive }}"
+
+      - name: Package macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          tar -C "target/${{ matrix.target }}/release" \
+            -czf "dist/${{ matrix.archive }}" \
+            "${{ matrix.executable }}"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Verify tag matches Cargo package version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          test "v${version}" = "${GITHUB_REF_NAME}" || {
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+            exit 1
+          }
+
+      - name: Download release archives
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/*
+          --verify-tag
+          --generate-notes
+          --title "${GITHUB_REF_NAME}"

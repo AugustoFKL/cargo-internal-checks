@@ -22,7 +22,7 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(error) => {
-            eprintln!("error: {error:#}");
+            error!("error: {error:#}");
             ExitCode::from(2)
         }
     }
@@ -44,7 +44,7 @@ fn run() -> Result<bool> {
     }
 
     if violations.is_empty() {
-        println!(
+        info!(
             "item-order: checked {} Rust file(s); no violations",
             files.len()
         );
@@ -60,7 +60,7 @@ fn run() -> Result<bool> {
         .map(|violation| violation.path())
         .collect();
 
-    info!(
+    error!(
         "item-order: found {} violation(s) in {} file(s)",
         violations.len(),
         affected_files.len()
