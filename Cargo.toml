@@ -1,11 +1,11 @@
 [package]
-name = "cargo-item-order"
+name = "cargo-internal-checks"
 version = "0.1.0"
 edition = "2024"
-description = "Checks configurable ordering of Rust module items"
+description = "Checks configurable checks of Rust module items"
 
 [[bin]]
-name = "cargo-item-order"
+name = "cargo-internal-checks"
 path = "src/main.rs"
 
 [dependencies]

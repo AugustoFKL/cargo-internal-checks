@@ -18,16 +18,16 @@ jobs:
         include:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: cargo-item-order-x86_64-pc-windows-msvc.zip
-            executable: cargo-item-order.exe
+            archive: cargo-internal-fixes-x86_64-pc-windows-msvc.zip
+            executable: cargo-internal-checks.exe
           - runner: macos-15-intel
             target: x86_64-apple-darwin
-            archive: cargo-item-order-x86_64-apple-darwin.tar.gz
-            executable: cargo-item-order
+            archive: cargo-internal-checks-x86_64-apple-darwin.tar.gz
+            executable: cargo-internal-checks
           - runner: macos-latest
             target: aarch64-apple-darwin
-            archive: cargo-item-order-aarch64-apple-darwin.tar.gz
-            executable: cargo-item-order
+            archive: cargo-internal-checks-aarch64-apple-darwin.tar.gz
+            executable: cargo-internal-checks
 
     steps:
       - name: Check out repository

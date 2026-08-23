@@ -207,33 +207,114 @@ fn is_rust_file(entry: &DirEntry) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
     use super::*;
 
-    #[test]
-    fn excludes_target_and_git_directories() {
-        let package_root = Path::new("/workspace/crate");
-        let target = Path::new("/workspace/target");
-        let roots = vec![package_root.to_path_buf()];
-        let rules = TraversalRules {
-            target_directory: target,
-            workspace_package_roots: &roots,
-        };
+    static NEXT_TEMP_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
-        assert!(!rules.should_visit_path(target, package_root));
-        assert!(!rules.should_visit_path(Path::new("/workspace/crate/.git"), package_root,));
+    struct TempDirectory {
+        path: PathBuf,
+    }
+
+    impl TempDirectory {
+        fn new() -> Result<Self> {
+            let id = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "cargo-internal-checks-project-tests-{}-{id}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path)?;
+            Ok(Self { path })
+        }
+    }
+
+    impl Drop for TempDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 
     #[test]
-    fn does_not_descend_into_another_workspace_package() {
-        let package_root = Path::new("/workspace");
-        let child_root = PathBuf::from("/workspace/crates/child");
-        let roots = vec![package_root.to_path_buf(), child_root.clone()];
-        let rules = TraversalRules {
-            target_directory: Path::new("/workspace/target"),
-            workspace_package_roots: &roots,
+    fn enumerates_only_selected_package_sources() -> Result<()> {
+        let temp = TempDirectory::new()?;
+        let root = &temp.path;
+        let child = root.join("child");
+        let target = root.join("target");
+
+        for directory in [
+            root.join("src"),
+            root.join(".git"),
+            child.join("src"),
+            target.clone(),
+        ] {
+            fs::create_dir_all(directory)?;
+        }
+
+        fs::write(root.join("src/lib.rs"), "pub struct Included;")?;
+        fs::write(root.join("build.rs"), "fn main() {}")?;
+        fs::write(root.join("README.md"), "not Rust")?;
+        fs::write(root.join(".git/ignored.rs"), "compile_error!();")?;
+        fs::write(child.join("src/lib.rs"), "compile_error!();")?;
+        fs::write(target.join("ignored.rs"), "compile_error!();")?;
+
+        let sources = SourceSet {
+            packages: vec![PackageRoot {
+                name: "parent".to_owned(),
+                root: root.clone(),
+            }],
+            target_directory: target,
+            workspace_package_roots: vec![root.clone(), child],
         };
 
-        assert!(rules.should_visit_path(package_root, package_root));
-        assert!(!rules.should_visit_path(&child_root, package_root));
+        assert_eq!(
+            sources.rust_files()?,
+            [root.join("build.rs"), root.join("src/lib.rs")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn selects_packages_and_reports_invalid_names() -> Result<()> {
+        let workspace = Workspace {
+            root: PathBuf::from("workspace"),
+            target_directory: PathBuf::from("workspace/target"),
+            packages: vec![
+                PackageRoot {
+                    name: "alpha".to_owned(),
+                    root: PathBuf::from("workspace/alpha"),
+                },
+                PackageRoot {
+                    name: "beta".to_owned(),
+                    root: PathBuf::from("workspace/beta"),
+                },
+            ],
+        };
+
+        assert_eq!(workspace.selected_packages(&[])?.len(), 2);
+        assert_eq!(
+            workspace.selected_packages(&["beta".to_owned()])?[0].name,
+            "beta"
+        );
+        assert!(
+            workspace
+                .selected_packages(&["missing".to_owned()])
+                .is_err_and(|e| e.to_string().contains("not a workspace member"))
+        );
+
+        let duplicate = workspace.packages[0].clone();
+        let ambiguous = Workspace {
+            packages: vec![duplicate.clone(), duplicate],
+            ..workspace
+        };
+        assert!(
+            ambiguous
+                .package_named("alpha")
+                .is_err_and(|e| e.to_string().contains("ambiguous"))
+        );
+        Ok(())
     }
 }

@@ -4,8 +4,8 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "cargo item-order",
-    bin_name = "cargo item-order",
+    name = "cargo internal-checks",
+    bin_name = "cargo internal-checks",
     version,
     about = "Checks configurable ordering of Rust module items"
 )]
@@ -18,10 +18,15 @@ pub(crate) struct Cli {
     #[arg(long, value_name = "PATH")]
     manifest_path: Option<PathBuf>,
 
-    /// Path to the item-order configuration.
-    /// Defaults to <workspace-root>/item-order.toml.
+    /// Path to the internal-checks configuration.
+    /// Defaults to <workspace-root>/internal-checks.toml.
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// Rewrite imports, module declarations, and error variants.
+    /// Run the project's rustfmt afterward.
+    #[arg(long)]
+    fix: bool,
 }
 
 impl Cli {
@@ -35,5 +40,9 @@ impl Cli {
 
     pub(crate) fn config(&self) -> Option<&PathBuf> {
         self.config.as_ref()
+    }
+
+    pub(crate) fn fix(&self) -> bool {
+        self.fix
     }
 }

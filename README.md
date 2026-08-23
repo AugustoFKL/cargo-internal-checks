@@ -1,12 +1,10 @@
-# cargo-item-order
+# cargo-internal-checks
 
-`cargo-item-order` checks the ordering of selected Rust module items according to a repository-local configuration.
-
-The first version is intentionally check-only. It parses Rust structurally with `syn`, checks inline modules recursively, discovers workspace packages through Cargo metadata, and exits non-zero when it finds an ordering violation.
+`cargo-internal-checks` checks and fixes the ordering of selected Rust module items according to a repository-local configuration. It parses Rust structurally with `syn`, checks inline modules recursively, discovers workspace packages through Cargo metadata, and exits non-zero when it finds an ordering violation.
 
 ## Configuration
 
-Create `item-order.toml` at the Cargo workspace root:
+Create `internal-checks.toml` at the Cargo workspace root:
 
 ```toml
 order = [
@@ -64,31 +62,50 @@ mod outer {
 }
 ```
 
-Attributes and comments do not create run boundaries because the checker operates on parsed Rust items rather than lines.
+Outer attributes and ordinary comments do not create checker run boundaries because the checker operates on parsed Rust items rather than lines. The fixer moves outer attributes together with their item and conservatively leaves runs containing comments unchanged.
+
+Within each import visibility class, imports are grouped as standard-library, external, and local imports. Ordering inside one of those groups is left to `rustfmt`, which avoids duplicating formatter policy in this tool. Bare roots matching a module declared in the same scope are local imports. This local declaration takes precedence when its name is also a standard-library root, so `use core::*` is local in a scope containing `mod core;` and otherwise refers to Rust's `core` crate for grouping purposes.
+
+### Error variants
+
+Enums deriving `Error` or `thiserror::Error` must declare their variants alphabetically by identifier. Variant blocks must be separated by exactly one empty line; attributes and Rustdoc remain attached to the variant that follows them.
+
+Ordinary comments between error variants are rejected with a dedicated diagnostic because their ownership is ambiguous when variants are reordered. Use Rustdoc (`///`) when a comment describes the following variant.
+
+```rust
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("message 1")]
+    Variant1 {},
+
+    #[error("message 2")]
+    Variant2,
+}
+```
 
 ## Usage
 
-Install the binary so `cargo-item-order` is on `PATH`, then invoke it as a Cargo subcommand:
+Install the binary so `cargo-internal-checks` is on `PATH`, then invoke it as a Cargo subcommand:
 
 ```bash
-cargo item-order
+cargo internal-checks
 ```
 
 By default, every workspace package is checked. Select one or more packages with:
 
 ```bash
-cargo item-order -p math
-cargo item-order -p math -p crypto
+cargo internal-checks -p math
+cargo internal-checks -p math -p crypto
 ```
 
 Use a different manifest or configuration file with:
 
 ```bash
-cargo item-order --manifest-path path/to/Cargo.toml
-cargo item-order --config path/to/item-order.toml
+cargo internal-checks --manifest-path path/to/Cargo.toml
+cargo internal-checks --config path/to/internal-checks.toml
 ```
 
-The default configuration path is `<workspace-root>/item-order.toml`.
+The default configuration path is `<workspace-root>/internal-checks.toml`.
 
 The checker returns:
 
@@ -97,6 +114,18 @@ The checker returns:
 - exit code `2` for configuration, parsing, discovery, or I/O failures.
 
 That makes the default command suitable for CI without an additional `--check` flag.
+
+### Fixing item order
+
+Pass `--fix` to reorder consecutive imports and module declarations, and to order and space variants in enums deriving `Error`. Items follow the configured visibility order, while imports are additionally grouped as standard-library, external, and local imports:
+
+```bash
+cargo internal-checks --fix
+```
+
+The fixer orders the groups and inserts the required blank lines, including the boundary between imports and modules, boundaries between module visibility classes, and exactly one empty line between error variants. Attributes, Rustdoc, variant bodies, line endings, and the enum's trailing-comma policy are preserved. It does not invoke `rustfmt`, because projects may pin a particular toolchain or require nightly formatting options. After fixing, run the project's normal formatting command to handle ordering and granularity within each import group.
+
+Comments between imports or error variants make their ownership ambiguous, so the fixer leaves those runs unchanged and the normal check reports any remaining violations. The same rule applies to comments immediately inside an error enum's braces, where sorting could otherwise attach them to a different variant.
 
 ## File discovery
 
@@ -112,7 +141,3 @@ git push origin v0.1.0
 ```
 
 The workflow publishes archives for Windows x86-64, macOS Intel, and macOS Apple Silicon. Each release also includes a `SHA256SUMS` file.
-
-## Planned next step
-
-The natural v0.2 feature is `--fix`. The analyzer is deliberately separate from file discovery so the fixer can reuse the same classifications and violations while applying source-preserving textual edits instead of reprinting the `syn` AST.

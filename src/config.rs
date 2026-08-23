@@ -110,8 +110,6 @@ struct RawConfig {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
-
     use super::*;
 
     #[test]
@@ -138,21 +136,36 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_classes() -> Result<()> {
-        let error = Config::parse(r#"order = ["use", "use"]"#)
-            .err()
-            .ok_or_else(|| anyhow!("expected error"))?;
+    fn formats_every_supported_item_class() {
+        let cases = [
+            (ItemKind::Use, Visibility::Private, "use"),
+            (ItemKind::Use, Visibility::Crate, "pub(crate) use"),
+            (ItemKind::Use, Visibility::Public, "pub use"),
+            (ItemKind::Mod, Visibility::Private, "mod"),
+            (ItemKind::Mod, Visibility::Crate, "pub(crate) mod"),
+            (ItemKind::Mod, Visibility::Public, "pub mod"),
+        ];
 
-        assert!(error.to_string().contains("duplicate item class"));
-        Ok(())
+        for (kind, visibility, expected) in cases {
+            assert_eq!(ItemClass::new(kind, visibility).to_string(), expected);
+        }
     }
 
     #[test]
-    fn rejects_unknown_classes() -> Result<()> {
-        let error = Config::parse(r#"order = ["pub(super) use"]"#)
-            .err()
-            .ok_or_else(|| anyhow!("expected error"))?;
-        assert!(error.to_string().contains("unsupported item class"));
+    fn rejects_invalid_configurations() -> Result<()> {
+        let cases = [
+            (r#"order = []"#, "must contain at least one item class"),
+            (r#"order = ["use", "use"]"#, "duplicate item class"),
+            (r#"order = ["pub(super) use"]"#, "unsupported item class"),
+        ];
+
+        for (source, expected) in cases {
+            let error = Config::parse(source)
+                .err()
+                .ok_or(anyhow!("configuration should be rejected"))?;
+            assert!(error.to_string().contains(expected));
+        }
+
         Ok(())
     }
 }
