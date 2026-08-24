@@ -9,15 +9,16 @@ to `rustfmt`, another lint, or code review.
 
 ## Enforcement at a glance
 
-| Convention                                          | Checked  | Fixed with `--fix` | Configurable |
-|-----------------------------------------------------|:--------:|:------------------:|:------------:|
-| Configured `use` and `mod` item order               |   Yes    |   Yes, when safe   |     Yes      |
-| Standard-library, external, and local import order  |   Yes    |   Yes, when safe   |      No      |
-| Blank lines between item classes and import origins |   Yes    |   Yes, when safe   |      No      |
-| Alphabetical order inside one import group          |    No    | No; use `rustfmt`  |      No      |
-| Alphabetical error variants                         |   Yes    |   Yes, when safe   |      No      |
-| Exactly one empty line between error variants       |   Yes    |   Yes, when safe   |      No      |
-| Ordinary comments between error variants            | Rejected |         No         |      No      |
+| Convention                                               | Checked  | Fixed with `--fix` | Configurable |
+|----------------------------------------------------------|:--------:|:------------------:|:------------:|
+| Configured `use` and `mod` item order                    |   Yes    |   Yes, when safe   |     Yes      |
+| Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |      No      |
+| Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |      No      |
+| No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |      No      |
+| Alphabetical order inside one import group               |    No    | No; use `rustfmt`  |      No      |
+| Alphabetical error variants                              |   Yes    |   Yes, when safe   |      No      |
+| Exactly one empty line between error variants            |   Yes    |   Yes, when safe   |      No      |
+| Ordinary comments between error variants                 | Rejected |         No         |      No      |
 
 The checker is authoritative. `--fix` is deliberately conservative: a file can violate a convention even when the tool
 refuses to rewrite the ambiguous source automatically.
@@ -99,6 +100,9 @@ Adjacent imports from different origins must have at least one empty line betwee
 whenever adjacent configured items have different visibility classes or when the sequence changes between an import
 class and a module class.
 
+Conversely, consecutive imports in the same visibility class and origin group must not have an empty line between them.
+They remain separate `use` items; this convention controls only their separator.
+
 `pub use` is a visibility class, not an origin. For example, `pub use anyhow::Error` is an external import while
 `pub use crate::Error` is a local import; both remain in the position assigned to `pub use` by the configuration.
 
@@ -137,10 +141,26 @@ mod parser;
 The checker does **not** require `anyhow` to precede `tracing`; alphabetical ordering within the external group is left
 to the project's `rustfmt` configuration. It only enforces the group order and the blank lines at group boundaries.
 
+This is invalid because both imports are private and local, so the empty line splits one import group:
+
+```rust
+use crate::encoding::Decode;
+
+use crate::schemes::NgfheScheme;
+```
+
+Remove only the empty line; the two `use` trees do not need to be merged:
+
+```rust
+use crate::encoding::Decode;
+use crate::schemes::NgfheScheme;
+```
+
 ### Automatic fixing
 
-`--fix` groups imports by origin and inserts the required blank lines. It does not change import granularity,
-alphabetize paths within a group, or invoke `rustfmt`. Run the repository's normal formatting command afterward.
+`--fix` groups imports by origin, inserts required blank lines, and removes blank lines inside one group. It does not
+change import granularity, alphabetize paths within a group, or invoke `rustfmt`. Run the repository's normal formatting
+command afterward.
 
 ## Error variants
 

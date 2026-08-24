@@ -221,6 +221,17 @@ mod tests {
     }
 
     #[test]
+    fn removes_blank_line_without_merging_same_group_imports() -> Result<()> {
+        let fixed = fixed("use crate::encoding::Decode;\n\nuse crate::schemes::NgfheScheme;\n")?;
+
+        assert_eq!(
+            fixed,
+            "use crate::encoding::Decode;\nuse crate::schemes::NgfheScheme;\n"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn preserves_rustfmt_order_within_the_local_group() -> Result<()> {
         let source = r#"pub use crate::{
     bindings::{cudaFree, cudaMalloc, cudaMemcpy, cudaMemcpy2D, cudaMemcpyAsync, cudaMemcpyKind},

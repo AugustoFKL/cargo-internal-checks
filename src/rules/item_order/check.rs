@@ -35,6 +35,10 @@ pub(crate) enum Violation {
         previous: ItemGroup,
         current: ItemGroup,
     },
+    #[display(
+        "imports with `{group}` origin and the same visibility must not be separated by a blank line"
+    )]
+    UnexpectedBlankLine { group: ItemGroup },
     #[display("`{found}` must appear before `{must_precede}`")]
     ItemOrder {
         found: ItemClass,
@@ -100,12 +104,20 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         };
 
         let group_changed = current.class != previous.class || current_group != previous.group;
-        if group_changed && !self.has_blank_line(previous.end_line, current.span.start().line) {
+        let has_blank_line = self.has_blank_line(previous.end_line, current.span.start().line);
+        if group_changed && !has_blank_line {
             self.report(
                 current.span,
                 Violation::MissingBlankLine {
                     previous: previous.group,
                     current: current_group,
+                },
+            );
+        } else if !group_changed && current.import_key.is_some() && has_blank_line {
+            self.report(
+                current.span,
+                Violation::UnexpectedBlankLine {
+                    group: current_group,
                 },
             );
         }
@@ -345,6 +357,43 @@ mod tests {
         )?;
 
         assert!(violations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_adjacent_imports_in_the_same_group() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            use crate::encoding::Decode;
+            use crate::schemes::NgfheScheme;
+            "#,
+            &default_config()?,
+        )?;
+
+        assert!(violations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_blank_line_between_imports_in_the_same_group() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            use crate::encoding::Decode;
+
+            use crate::schemes::NgfheScheme;
+            "#,
+            &default_config()?,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::UnexpectedBlankLine {
+                group: ItemGroup::Local,
+            })
+        );
         Ok(())
     }
 
