@@ -5,11 +5,10 @@ use proc_macro2::Span;
 use syn::{Item, ItemMod};
 
 use super::{
-    ItemGroup,
+    ItemClass, ItemGroup,
     model::{ClassifiedItem, ImportKey, ModuleScope},
 };
 use crate::{
-    config::{Config, ItemClass},
     diagnostic::{Violation as Diagnostic, ViolationKind as DiagnosticKind},
     source::Source,
 };
@@ -17,11 +16,10 @@ use crate::{
 pub(crate) fn check(
     path: &Path,
     source: &Source<'_>,
-    config: &Config,
     items: &[Item],
     violations: &mut Vec<Diagnostic>,
 ) {
-    let mut checker = ItemOrderChecker::new(path, source, config);
+    let mut checker = ItemOrderChecker::new(path, source);
     checker.check_items(items);
     violations.extend(checker.violations);
 }
@@ -51,17 +49,15 @@ pub(crate) enum Violation {
 struct ItemOrderChecker<'a, 'source> {
     path: &'a Path,
     source: &'a Source<'source>,
-    config: &'a Config,
     module_path: Vec<String>,
     violations: Vec<Diagnostic>,
 }
 
 impl<'a, 'source> ItemOrderChecker<'a, 'source> {
-    fn new(path: &'a Path, source: &'a Source<'source>, config: &'a Config) -> Self {
+    fn new(path: &'a Path, source: &'a Source<'source>) -> Self {
         Self {
             path,
             source,
-            config,
             module_path: Vec::new(),
             violations: Vec::new(),
         }
@@ -72,8 +68,8 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         let mut run = OrderedRun::default();
 
         for item in items {
-            match self.classify_ranked_item(item, &scope) {
-                Some((classified, rank)) => self.check_classified(classified, rank, &mut run),
+            match ClassifiedItem::from_ast(item, &scope) {
+                Some(classified) => self.check_classified(classified, &mut run),
                 None => run.clear(),
             }
 
@@ -81,19 +77,9 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         }
     }
 
-    fn classify_ranked_item(
-        &self,
-        item: &Item,
-        scope: &ModuleScope,
-    ) -> Option<(ClassifiedItem, usize)> {
-        let classified = ClassifiedItem::from_ast(item, scope)?;
-        let rank = self.config.rank(classified.class)?;
-        Some((classified, rank))
-    }
-
-    fn check_classified(&mut self, classified: ClassifiedItem, rank: usize, run: &mut OrderedRun) {
+    fn check_classified(&mut self, classified: ClassifiedItem, run: &mut OrderedRun) {
         self.check_group_separation(&classified, run);
-        self.check_order(&classified, rank, run);
+        self.check_order(&classified, run);
         run.remember_item(&classified);
     }
 
@@ -123,7 +109,8 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         }
     }
 
-    fn check_order(&mut self, current: &ClassifiedItem, rank: usize, run: &mut OrderedRun) {
+    fn check_order(&mut self, current: &ClassifiedItem, run: &mut OrderedRun) {
+        let rank = current.class.rank();
         let Some(highest) = run.highest.as_ref() else {
             run.highest = Some(RankedItem::new(current, rank));
             return;
@@ -241,33 +228,17 @@ struct PreviousItem {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::{Context, Result};
+    use anyhow::Result;
 
     use super::*;
-    use crate::config::{Config, ItemClass, ItemKind, Visibility};
+    use crate::rules::item_order::model::{ItemKind, Visibility};
 
-    fn check_source(path: &Path, source: &str, config: &Config) -> Result<Vec<Diagnostic>> {
+    fn check_source(path: &Path, source: &str) -> Result<Vec<Diagnostic>> {
         let file = syn::parse_file(source)?;
         let source = Source::new(source);
         let mut violations = Vec::new();
-        check(path, &source, config, &file.items, &mut violations);
+        check(path, &source, &file.items, &mut violations);
         Ok(violations)
-    }
-
-    fn default_config() -> Result<Config> {
-        Config::parse(
-            r#"
-            order = [
-                "use",
-                "pub(crate) use",
-                "pub use",
-                "mod",
-                "pub(crate) mod",
-                "pub mod",
-            ]
-            "#,
-        )
-        .context("default config")
     }
 
     #[test]
@@ -288,7 +259,6 @@ mod tests {
 
             pub mod f;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -305,7 +275,6 @@ mod tests {
 
             pub(crate) use crate::b::B;
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -328,11 +297,10 @@ mod tests {
             use proc_macro2::{LineColumn, Span};
             use syn::{Item, ItemMod};
 
-            use crate::config::{Config, ItemClass, ItemKind, Visibility};
+            use crate::diagnostic::{Violation, ViolationKind};
 
             use tracing::info;
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -349,11 +317,10 @@ mod tests {
             use tracing::info;
             use anyhow::Result as AnyhowResult;
 
-            use crate::config::Config;
+            use crate::diagnostic::Violation;
             use self::local::Local;
             use super::parent::Parent;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -368,7 +335,6 @@ mod tests {
             use crate::encoding::Decode;
             use crate::schemes::NgfheScheme;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -384,7 +350,6 @@ mod tests {
 
             use crate::schemes::NgfheScheme;
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -404,9 +369,8 @@ mod tests {
             r#"
             use anyhow::Context;
             use super::*;
-            use crate::config::{Config, ItemClass, ItemKind, Visibility};
+            use crate::diagnostic::{Violation, ViolationKind};
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -428,7 +392,6 @@ mod tests {
 
             use crate::b::B;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -448,7 +411,6 @@ mod tests {
                 }
             }
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -457,23 +419,26 @@ mod tests {
     }
 
     #[test]
-    fn omitted_categories_are_run_boundaries() -> Result<()> {
-        let config = Config::parse(
-            r#"
-            order = ["use", "pub use"]
-            "#,
-        )?;
+    fn every_supported_item_class_participates_in_the_run() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
             r#"
             pub use crate::a::A;
+
             mod boundary;
+
             use crate::b::B;
             "#,
-            &config,
         )?;
 
-        assert!(violations.is_empty());
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::ItemOrder {
+                found: ItemClass::new(ItemKind::Use, Visibility::Private),
+                must_precede: ItemClass::new(ItemKind::Mod, Visibility::Private),
+            })
+        );
         Ok(())
     }
 
@@ -486,7 +451,6 @@ mod tests {
             pub(super) use crate::b::B;
             use crate::c::C;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -502,7 +466,6 @@ mod tests {
 
             mod core;
             "#,
-            &default_config()?,
         )?;
 
         assert!(violations.is_empty());
@@ -518,7 +481,6 @@ mod tests {
 
             use core::fmt;
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);
@@ -542,7 +504,6 @@ mod tests {
             #[cfg(feature = "optional")]
             use anyhow::Result;
             "#,
-            &default_config()?,
         )?;
 
         assert_eq!(violations.len(), 1);

@@ -1,9 +1,0 @@
-order = [
-    "use",
-    "pub(crate) use",
-    "pub use",
-    "mod",
-    "pub(crate) mod",
-    "pub mod",
-]
-

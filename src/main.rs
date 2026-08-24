@@ -1,19 +1,14 @@
 //! Verification and formatting of Rust import order.
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-    process::ExitCode,
-};
+use std::{collections::BTreeSet, path::Path, process::ExitCode};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::Parser;
 use tracing::{error, info};
 
-use crate::{cli::Cli, config::Config, diagnostic::Violation, project::Project};
+use crate::{cli::Cli, diagnostic::Violation, project::Project};
 
 mod check;
 mod cli;
-mod config;
 mod diagnostic;
 mod edit;
 mod fix;
@@ -39,14 +34,12 @@ fn run() -> Result<bool> {
 
     let args = Cli::parse();
     let project = Project::discover(args.manifest_path(), args.packages())?;
-    let config_path = resolve_config_path(args.config().cloned(), project.workspace_root())?;
-    let config = Config::load(&config_path)?;
     let files = project.rust_files()?;
 
     if args.fix() {
         let mut fixed = 0;
         for path in &files {
-            fixed += usize::from(fix::fix_file(path, &config)?);
+            fixed += usize::from(fix::fix_file(path)?);
         }
         info!("internal-checks: fixed {fixed} Rust file(s)");
         if fixed > 0 {
@@ -56,7 +49,7 @@ fn run() -> Result<bool> {
 
     let mut violations = Vec::new();
     for path in &files {
-        violations.extend(check::check_file(path, &config)?);
+        violations.extend(check::check_file(path)?);
     }
 
     if violations.is_empty() {
@@ -82,14 +75,6 @@ fn run() -> Result<bool> {
         affected_files.len()
     );
     Ok(false)
-}
-
-fn resolve_config_path(config: Option<PathBuf>, workspace_root: &Path) -> Result<PathBuf> {
-    let path = config.unwrap_or_else(|| workspace_root.join("internal-checks.toml"));
-    if !path.is_file() {
-        bail!("configuration file `{path:#?}` does not exist; create it or pass `--config <PATH>`",);
-    }
-    Ok(path)
 }
 
 fn print_violation(violation: &Violation, workspace_root: &Path, verbose: bool) {

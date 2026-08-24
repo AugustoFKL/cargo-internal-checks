@@ -9,16 +9,16 @@ to `rustfmt`, another lint, or code review.
 
 ## Enforcement at a glance
 
-| Convention                                               | Checked  | Fixed with `--fix` | Configurable |
-|----------------------------------------------------------|:--------:|:------------------:|:------------:|
-| Configured `use` and `mod` item order                    |   Yes    |   Yes, when safe   |     Yes      |
-| Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |      No      |
-| Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |      No      |
-| No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |      No      |
-| Alphabetical order inside one import group               |    No    | No; use `rustfmt`  |      No      |
-| Alphabetical error variants                              |   Yes    |   Yes, when safe   |      No      |
-| Exactly one empty line between error variants            |   Yes    |   Yes, when safe   |      No      |
-| Ordinary comments between error variants                 | Rejected |         No         |      No      |
+| Convention                                               | Checked  | Fixed with `--fix` |
+|----------------------------------------------------------|:--------:|:------------------:|
+| `use` and `mod` item order                               |   Yes    |   Yes, when safe   |
+| Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |
+| Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |
+| No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |
+| Alphabetical order inside one import group               |    No    | No; use `rustfmt`  |
+| Alphabetical error variants                              |   Yes    |   Yes, when safe   |
+| Exactly one empty line between error variants            |   Yes    |   Yes, when safe   |
+| Ordinary comments between error variants                 | Rejected |         No         |
 
 The checker is authoritative. `--fix` is deliberately conservative: a file can violate a convention even when the tool
 refuses to rewrite the ambiguous source automatically.
@@ -27,8 +27,7 @@ refuses to rewrite the ambiguous source automatically.
 
 ### Rule
 
-Every contiguous run of configured `use` and `mod` items must follow the class order declared in
-`internal-checks.toml`. With the repository's default configuration, that order is:
+Every contiguous run of supported `use` and `mod` items must follow this order:
 
 1. `use`
 2. `pub(crate) use`
@@ -42,14 +41,13 @@ and before all `pub use` items.
 
 ### Why
 
-A stable declaration order makes visibility changes obvious and gives each module the same high-level shape. The order
-is repository-configurable because declaration layout is policy, not a language requirement.
+A stable declaration order makes visibility changes obvious and gives each module the same high-level shape. Keeping
+the order in the tool ensures that the team's repositories share one convention.
 
 ### Scope and boundaries
 
-A run continues only across item classes included in `order`. Any other Rust item ends the run, including a function,
-type, constant, or macro invocation. A supported class omitted from the configuration also ends the run instead of being
-silently assigned a rank.
+A run continues only across supported `use` and `mod` items. Any other Rust item ends the run, including a function,
+type, constant, or macro invocation.
 
 The only supported visibilities are private, `pub(crate)`, and `pub`. Restricted forms such as `pub(super)` and
 `pub(in path)` are not ordered and therefore end a run.
@@ -59,7 +57,7 @@ modules are checked recursively and independently, using the declarations in eac
 
 ### Examples
 
-This run is invalid because `pub(crate) use` is configured before `pub use`:
+This run is invalid because `pub(crate) use` must appear before `pub use`:
 
 ```rust
 pub use crate::Public;
@@ -79,7 +77,7 @@ use crate::Private;
 
 ### Automatic fixing
 
-`--fix` stably sorts a run by configured class and import origin. It moves outer attributes with their item and
+`--fix` stably sorts a run by class and import origin. It moves outer attributes with their item and
 preserves the existing order inside one import group.
 
 The fixer leaves an entire run unchanged when non-whitespace text occurs between its items. This includes ordinary
@@ -97,14 +95,14 @@ Within each `use` visibility class, imports must appear in this order:
 3. local modules.
 
 Adjacent imports from different origins must have at least one empty line between them. A blank line is also required
-whenever adjacent configured items have different visibility classes or when the sequence changes between an import
+whenever adjacent supported items have different visibility classes or when the sequence changes between an import
 class and a module class.
 
 Conversely, consecutive imports in the same visibility class and origin group must not have an empty line between them.
 They remain separate `use` items; this convention controls only their separator.
 
 `pub use` is a visibility class, not an origin. For example, `pub use anyhow::Error` is an external import while
-`pub use crate::Error` is a local import; both remain in the position assigned to `pub use` by the configuration.
+`pub use crate::Error` is a local import; both remain in the position assigned to `pub use` by the fixed class order.
 
 ### Origin classification
 
@@ -130,7 +128,7 @@ use std::path::Path;
 use anyhow::Result;
 use tracing::info;
 
-use crate::config::Config;
+use crate::diagnostic::Violation;
 use super::Context;
 
 pub use anyhow::Error;

@@ -7,16 +7,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-const CONFIG: &str = r#"order = [
-    "use",
-    "pub(crate) use",
-    "pub use",
-    "mod",
-    "pub(crate) mod",
-    "pub mod",
-]
-"#;
-
 static NEXT_PROJECT: AtomicUsize = AtomicUsize::new(0);
 
 struct TestProject {
@@ -24,7 +14,7 @@ struct TestProject {
 }
 
 impl TestProject {
-    fn new(source: &str, default_config: bool) -> std::io::Result<Self> {
+    fn new(source: &str) -> std::io::Result<Self> {
         let id = NEXT_PROJECT.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
             "cargo-internal-checks-cli-tests-{}-{id}",
@@ -42,9 +32,6 @@ edition = "2024"
 "#,
         )?;
         fs::write(root.join("src/lib.rs"), source)?;
-        if default_config {
-            fs::write(root.join("internal-checks.toml"), CONFIG)?;
-        }
 
         Ok(Self { root })
     }
@@ -99,7 +86,7 @@ mod errors {
     }
 }
 "#;
-    let project = TestProject::new(source, true)?;
+    let project = TestProject::new(source)?;
 
     let output = project.run(&[])?;
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -130,24 +117,21 @@ mod errors {
 }
 
 #[test]
-fn accepts_package_and_explicit_config_options() -> std::io::Result<()> {
-    let project = TestProject::new("use std::path::Path;\n", false)?;
-    project.write("custom.toml", r#"order = ["use"]"#)?;
+fn accepts_package_option_without_configuration() -> std::io::Result<()> {
+    let project = TestProject::new("use std::path::Path;\n")?;
 
-    let output = project.run(&["--package", "fixture", "--config", "custom.toml"])?;
+    let output = project.run(&["--package", "fixture"])?;
     assert_eq!(output.status.code(), Some(0));
     Ok(())
 }
 
 #[test]
-fn reports_missing_configuration_and_invalid_rust() -> std::io::Result<()> {
-    let project = TestProject::new("pub struct Valid;\n", false)?;
+fn runs_without_configuration_and_reports_invalid_rust() -> std::io::Result<()> {
+    let project = TestProject::new("pub struct Valid;\n")?;
 
     let output = project.run(&[])?;
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("does not exist"));
+    assert_eq!(output.status.code(), Some(0));
 
-    project.write("internal-checks.toml", CONFIG)?;
     project.write("src/lib.rs", "fn invalid(")?;
     let output = project.run(&[])?;
     assert_eq!(output.status.code(), Some(2));

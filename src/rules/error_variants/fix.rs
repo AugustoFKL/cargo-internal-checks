@@ -180,16 +180,10 @@ struct FixableVariant {
 mod tests {
     use anyhow::Result;
 
-    use crate::{config::Config, fix::fix_source};
-
-    fn config() -> Result<Config> {
-        Config::parse(
-            r#"order = ["use", "pub(crate) use", "pub use", "mod", "pub(crate) mod", "pub mod"]"#,
-        )
-    }
+    use crate::fix::fix_source;
 
     fn fixed(source: &str) -> Result<String> {
-        fix_source(source, &config()?)
+        fix_source(source)
     }
 
     #[test]

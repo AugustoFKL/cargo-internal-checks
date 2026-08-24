@@ -1,10 +1,10 @@
 use syn::{Item, ItemMod, spanned::Spanned};
 
 use super::model::{ItemPlacement, ModuleScope};
-use crate::{config::Config, edit::Edit, source::Source};
+use crate::{edit::Edit, source::Source};
 
-pub(crate) fn edits(source: &Source<'_>, config: &Config, items: &[Item]) -> Vec<Edit> {
-    let fixer = ItemOrderFixer::new(source, config);
+pub(crate) fn edits(source: &Source<'_>, items: &[Item]) -> Vec<Edit> {
+    let fixer = ItemOrderFixer::new(source);
     let mut edits = Vec::new();
     fixer.collect_edits_into(items, &mut edits);
     edits
@@ -12,12 +12,11 @@ pub(crate) fn edits(source: &Source<'_>, config: &Config, items: &[Item]) -> Vec
 
 struct ItemOrderFixer<'a, 'source> {
     source: &'a Source<'source>,
-    config: &'a Config,
 }
 
 impl<'a, 'source> ItemOrderFixer<'a, 'source> {
-    fn new(source: &'a Source<'source>, config: &'a Config) -> Self {
-        Self { source, config }
+    fn new(source: &'a Source<'source>) -> Self {
+        Self { source }
     }
 
     fn collect_edits_into(&self, items: &[Item], edits: &mut Vec<Edit>) {
@@ -51,12 +50,12 @@ impl<'a, 'source> ItemOrderFixer<'a, 'source> {
         start: usize,
         scope: &ModuleScope,
     ) -> Option<(ItemRun, usize)> {
-        let first = FixableItem::from_ast(&items[start], self.source, self.config, scope)?;
+        let first = FixableItem::from_ast(&items[start], self.source, scope)?;
         let mut fixable_items = vec![first];
         let mut end = start + 1;
 
         while let Some(ast) = items.get(end) {
-            let Some(item) = FixableItem::from_ast(ast, self.source, self.config, scope) else {
+            let Some(item) = FixableItem::from_ast(ast, self.source, scope) else {
                 break;
             };
 
@@ -167,18 +166,13 @@ struct FixableItem {
 }
 
 impl FixableItem {
-    fn from_ast(
-        item: &Item,
-        source: &Source<'_>,
-        config: &Config,
-        scope: &ModuleScope,
-    ) -> Option<Self> {
+    fn from_ast(item: &Item, source: &Source<'_>, scope: &ModuleScope) -> Option<Self> {
         let span = item.span();
 
         Some(Self {
             start: source.offset(span.start())?,
             end: source.offset(span.end())?,
-            placement: ItemPlacement::from_ast(item, config, scope)?,
+            placement: ItemPlacement::from_ast(item, scope)?,
         })
     }
 }
@@ -187,16 +181,10 @@ impl FixableItem {
 mod tests {
     use anyhow::Result;
 
-    use crate::{config::Config, fix::fix_source};
-
-    fn config() -> Result<Config> {
-        Config::parse(
-            r#"order = ["use", "pub(crate) use", "pub use", "mod", "pub(crate) mod", "pub mod"]"#,
-        )
-    }
+    use crate::fix::fix_source;
 
     fn fixed(source: &str) -> Result<String> {
-        fix_source(source, &config()?)
+        fix_source(source)
     }
 
     #[test]
@@ -284,7 +272,7 @@ mod cli;
 use std::collections::BTreeSet;
 use anyhow::Result;
 use crate::check::Violation;
-mod config;
+mod diagnostic;
 use clap::Parser;
 mod check;
 use tracing::info;
@@ -306,7 +294,7 @@ use tracing::info;
 use crate::check::Violation;
 
 mod cli;
-mod config;
+mod diagnostic;
 mod check;
 mod fix;
 mod logging;

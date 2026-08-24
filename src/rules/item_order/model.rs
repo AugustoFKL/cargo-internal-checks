@@ -1,11 +1,59 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 use derive_more::Display;
 use itertools::Itertools;
 use proc_macro2::Span;
 use syn::{Item, UseTree};
 
-use crate::config::{Config, ItemClass, ItemKind, Visibility};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ItemKind {
+    Use,
+    Mod,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Visibility {
+    Private,
+    Crate,
+    Public,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ItemClass {
+    kind: ItemKind,
+    visibility: Visibility,
+}
+
+impl ItemClass {
+    pub(super) const fn new(kind: ItemKind, visibility: Visibility) -> Self {
+        Self { kind, visibility }
+    }
+
+    pub(super) const fn rank(self) -> usize {
+        match (self.kind, self.visibility) {
+            (ItemKind::Use, Visibility::Private) => 0,
+            (ItemKind::Use, Visibility::Crate) => 1,
+            (ItemKind::Use, Visibility::Public) => 2,
+            (ItemKind::Mod, Visibility::Private) => 3,
+            (ItemKind::Mod, Visibility::Crate) => 4,
+            (ItemKind::Mod, Visibility::Public) => 5,
+        }
+    }
+}
+
+impl fmt::Display for ItemClass {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match (self.kind, self.visibility) {
+            (ItemKind::Use, Visibility::Private) => "use",
+            (ItemKind::Use, Visibility::Crate) => "pub(crate) use",
+            (ItemKind::Use, Visibility::Public) => "pub use",
+            (ItemKind::Mod, Visibility::Private) => "mod",
+            (ItemKind::Mod, Visibility::Crate) => "pub(crate) mod",
+            (ItemKind::Mod, Visibility::Public) => "pub mod",
+        };
+        formatter.write_str(text)
+    }
+}
 
 #[derive(Debug)]
 pub(super) struct ClassifiedItem {
@@ -138,9 +186,9 @@ pub(super) struct ItemPlacement {
 }
 
 impl ItemPlacement {
-    pub(super) fn from_ast(item: &Item, config: &Config, scope: &ModuleScope) -> Option<Self> {
+    pub(super) fn from_ast(item: &Item, scope: &ModuleScope) -> Option<Self> {
         let classified = ClassifiedItem::from_ast(item, scope)?;
-        let rank = config.rank(classified.class)?;
+        let rank = classified.class.rank();
         let group = classified.group();
 
         Some(Self {
@@ -156,5 +204,35 @@ impl ItemPlacement {
 
     pub(super) fn starts_new_group_after(self, previous: Self) -> bool {
         self.class != previous.class || self.group != previous.group
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defines_the_team_item_class_order() {
+        let classes = [
+            ItemClass::new(ItemKind::Use, Visibility::Private),
+            ItemClass::new(ItemKind::Use, Visibility::Crate),
+            ItemClass::new(ItemKind::Use, Visibility::Public),
+            ItemClass::new(ItemKind::Mod, Visibility::Private),
+            ItemClass::new(ItemKind::Mod, Visibility::Crate),
+            ItemClass::new(ItemKind::Mod, Visibility::Public),
+        ];
+
+        assert_eq!(classes.map(ItemClass::rank), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(
+            classes.map(|class| class.to_string()),
+            [
+                "use",
+                "pub(crate) use",
+                "pub use",
+                "mod",
+                "pub(crate) mod",
+                "pub mod"
+            ]
+        );
     }
 }
