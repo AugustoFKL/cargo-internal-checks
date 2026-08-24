@@ -1,6 +1,6 @@
 [package]
 name = "cargo-internal-checks"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Checks configurable checks of Rust module items"
 

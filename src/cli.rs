@@ -27,6 +27,10 @@ pub(crate) struct Cli {
     /// Run the project's rustfmt afterward.
     #[arg(long)]
     fix: bool,
+
+    /// Display absolute paths in diagnostics.
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 impl Cli {
@@ -44,5 +48,9 @@ impl Cli {
 
     pub(crate) fn fix(&self) -> bool {
         self.fix
+    }
+
+    pub(crate) fn verbose(&self) -> bool {
+        self.verbose
     }
 }

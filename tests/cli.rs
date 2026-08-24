@@ -50,7 +50,7 @@ edition = "2024"
     }
 
     fn source_path(&self) -> PathBuf {
-        self.root.join("src/lib.rs")
+        self.root.join("src").join("lib.rs")
     }
 
     fn write(&self, path: impl AsRef<Path>, contents: &str) -> std::io::Result<()> {
@@ -103,10 +103,21 @@ mod errors {
 
     let output = project.run(&[])?;
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let relative_source = Path::new("src").join("lib.rs");
     assert_eq!(output.status.code(), Some(1));
+    assert!(stderr.starts_with(&format!("{}:", relative_source.display())));
+    assert!(!stderr.contains(&project.root.display().to_string()));
     assert!(stderr.contains("`use` must appear before `mod`"));
     assert!(stderr.contains("error variant `First` must appear before `Second`"));
     assert!(stderr.contains("module: errors"));
+
+    let output = project.run(&["--verbose"])?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr.starts_with(&format!("{}:", project.source_path().display())),
+        "unexpected verbose diagnostics: {stderr}"
+    );
 
     let output = project.run(&["--fix"])?;
     assert_eq!(output.status.code(), Some(0));

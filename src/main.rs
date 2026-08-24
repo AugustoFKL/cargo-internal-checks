@@ -68,7 +68,7 @@ fn run() -> Result<bool> {
     }
 
     for violation in &violations {
-        print_violation(violation);
+        print_violation(violation, project.workspace_root(), args.verbose());
     }
 
     let affected_files: BTreeSet<_> = violations
@@ -92,10 +92,19 @@ fn resolve_config_path(config: Option<PathBuf>, workspace_root: &Path) -> Result
     Ok(path)
 }
 
-fn print_violation(violation: &Violation) {
+fn print_violation(violation: &Violation, workspace_root: &Path, verbose: bool) {
+    let path = if verbose {
+        violation.path()
+    } else {
+        violation
+            .path()
+            .strip_prefix(workspace_root)
+            .unwrap_or(violation.path())
+    };
+
     eprintln!(
         "{}:{}:{}: error: {violation}",
-        violation.path().display(),
+        path.display(),
         violation.line(),
         violation.column()
     );
