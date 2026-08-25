@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt};
 use derive_more::Display;
 use itertools::Itertools;
 use proc_macro2::Span;
-use syn::{Item, UseTree};
+use syn::{Item, UseTree, spanned::Spanned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ItemKind {
@@ -62,6 +62,7 @@ impl fmt::Display for ItemClass {
 pub(super) struct ClassifiedItem {
     pub(super) class: ItemClass,
     pub(super) span: Span,
+    pub(super) full_span: Span,
     pub(super) end_line: usize,
     pub(super) import_key: Option<ImportKey>,
 }
@@ -72,6 +73,7 @@ impl ClassifiedItem {
             Item::Use(item) => Some(Self {
                 class: ItemClass::new(ItemKind::Use, Self::visibility(&item.vis)?),
                 span: item.use_token.span,
+                full_span: item.span(),
                 end_line: item.semi_token.span.end().line,
                 import_key: Some(ImportKey::from_tree(&item.tree, scope)),
             }),
@@ -85,6 +87,7 @@ impl ClassifiedItem {
                 Some(Self {
                     class: ItemClass::new(kind, Self::visibility(&item.vis)?),
                     span: item.mod_token.span,
+                    full_span: item.span(),
                     end_line: item.semi.as_ref().map_or_else(
                         || item.mod_token.span.end().line,
                         |semi| semi.span.end().line,

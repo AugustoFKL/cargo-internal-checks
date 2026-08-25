@@ -17,6 +17,7 @@ to `rustfmt`, another lint, or code review.
 | Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |
 | No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |
 | Alphabetical order inside one import group               |    No    | No; use `rustfmt`  |
+| Ordinary comments inside an ordered `use`/`mod` run      | Rejected |         No         |
 | Alphabetical error variants                              |   Yes    |   Yes, when safe   |
 | Exactly one empty line between error variants            |   Yes    |   Yes, when safe   |
 | Ordinary comments between error variants                 | Rejected |         No         |
@@ -62,8 +63,17 @@ The only supported visibilities are private, `pub(crate)`, and `pub`. Restricted
 The conventional test module is required to be last only within its contiguous run. This rule does not move it across
 functions, types, macros, or other items that end a run.
 
-Outer attributes and ordinary comments do not end a checker run because the checker operates on parsed items. Inline
-modules are checked recursively and independently, using the declarations in each module as that module's local scope.
+Outer attributes do not end a checker run and move with their item. Inline modules are checked recursively and
+independently, using the declarations in each module as that module's local scope.
+
+### Comments within runs
+
+Ordinary line and block comments must not appear between items in an ordered `use`/`mod` run. Their ownership becomes
+ambiguous when the run is reordered, so they prevent `--fix` from changing anything in that run. While such a comment
+remains, the checker reports the comment instead of downstream order or spacing violations from the blocked run.
+
+Use Rustdoc (`///`) when a comment documents the following item. Otherwise, move the comment outside the ordered run,
+such as after the import and module declarations.
 
 ### Examples
 
@@ -106,9 +116,8 @@ Writing `pub mod tests` or any other explicit visibility on the conventional tes
 test module to the end of its run, and preserves the existing order inside one import group. It does not remove an
 invalid visibility from the test module; that diagnostic requires a manual change.
 
-The fixer leaves an entire run unchanged when non-whitespace text occurs between its items. This includes ordinary
-comments, whose ownership cannot be inferred safely. The checker can still report ordering or spacing violations in that
-run.
+The fixer leaves an entire run unchanged when non-whitespace text occurs between its items. For ordinary comments, the
+checker reports the actionable comment diagnostic described above.
 
 ## Import origin groups
 

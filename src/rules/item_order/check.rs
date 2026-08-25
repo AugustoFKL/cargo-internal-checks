@@ -37,6 +37,13 @@ pub(crate) enum Violation {
         "imports with `{group}` origin and the same visibility must not be separated by a blank line"
     )]
     UnexpectedBlankLine { group: ItemGroup },
+    #[display(
+        "ordinary comments between `{previous}` and `{current}` items are unsupported; use Rustdoc (`///`) on the following item or move the comment outside the ordered run"
+    )]
+    OrdinaryComment {
+        previous: ItemClass,
+        current: ItemClass,
+    },
     #[display("test module `tests` must be private")]
     TestModuleVisibility,
     #[display("`{found}` must appear before `{must_precede}`")]
@@ -67,24 +74,40 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
 
     fn check_items(&mut self, items: &[Item]) {
         let scope = ModuleScope::from_items(items);
-        let mut run = OrderedRun::default();
+        let mut run = Vec::new();
 
         for item in items {
             self.check_test_module_visibility(item);
 
-            match ClassifiedItem::from_ast(item, &scope) {
-                Some(classified) => self.check_classified(classified, &mut run),
-                None => run.clear(),
+            if let Some(classified) = ClassifiedItem::from_ast(item, &scope) {
+                run.push(classified);
+            } else {
+                self.check_run(&run);
+                run.clear();
             }
+        }
+        self.check_run(&run);
 
+        for item in items {
             self.check_inline_module(item);
         }
     }
 
-    fn check_classified(&mut self, classified: ClassifiedItem, run: &mut OrderedRun) {
-        self.check_group_separation(&classified, run);
-        self.check_order(&classified, run);
-        run.remember_item(&classified);
+    fn check_run(&mut self, items: &[ClassifiedItem]) {
+        if self.check_ordinary_comments(items) {
+            return;
+        }
+
+        let mut run = OrderedRun::default();
+        for item in items {
+            self.check_classified(item, &mut run);
+        }
+    }
+
+    fn check_classified(&mut self, classified: &ClassifiedItem, run: &mut OrderedRun) {
+        self.check_group_separation(classified, run);
+        self.check_order(classified, run);
+        run.remember_item(classified);
     }
 
     fn check_test_module_visibility(&mut self, item: &Item) {
@@ -97,6 +120,42 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         {
             self.report(item.mod_token.span, Violation::TestModuleVisibility);
         }
+    }
+
+    fn check_ordinary_comments(&mut self, items: &[ClassifiedItem]) -> bool {
+        let mut found = false;
+
+        for pair in items.windows(2) {
+            if !self.has_ordinary_comment_between(&pair[0], &pair[1]) {
+                continue;
+            }
+
+            found = true;
+            self.report(
+                pair[1].span,
+                Violation::OrdinaryComment {
+                    previous: pair[0].class,
+                    current: pair[1].class,
+                },
+            );
+        }
+
+        found
+    }
+
+    fn has_ordinary_comment_between(
+        &self,
+        previous: &ClassifiedItem,
+        current: &ClassifiedItem,
+    ) -> bool {
+        let Some(text) = self
+            .source
+            .text_between(previous.full_span.end(), current.full_span.start())
+        else {
+            return false;
+        };
+
+        text.contains("//") || text.contains("/*")
     }
 
     fn check_group_separation(&mut self, current: &ClassifiedItem, run: &OrderedRun) {
@@ -205,11 +264,6 @@ struct OrderedRun {
 }
 
 impl OrderedRun {
-    fn clear(&mut self) {
-        self.highest = None;
-        self.previous_item = None;
-    }
-
     fn remember_item(&mut self, item: &ClassifiedItem) {
         self.previous_item = Some(PreviousItem {
             class: item.class,
@@ -407,6 +461,46 @@ mod tests {
             const VALUE: usize = 3;
 
             use crate::b::B;
+            "#,
+        )?;
+
+        assert!(violations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn reports_comment_instead_of_blocked_run_violations() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            use crate::a::A;
+
+            use crate::b::B;
+            // Module declarations.
+            mod c;
+            "#,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::OrdinaryComment {
+                previous: ItemClass::new(ItemKind::Use, Visibility::Private),
+                current: ItemClass::new(ItemKind::Mod, Visibility::Private),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_rustdoc_on_an_ordered_item() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            use crate::a::A;
+
+            /// The C module.
+            mod c;
             "#,
         )?;
 
