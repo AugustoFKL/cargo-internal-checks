@@ -27,7 +27,7 @@ pub(crate) fn check(
 #[derive(Debug, Clone, PartialEq, Eq, Display)]
 pub(crate) enum Violation {
     #[display(
-        "items from `{previous}` and `{current}` groups with different origin or visibility must be separated by a blank line"
+        "items from `{previous}` and `{current}` groups with different class or origin must be separated by a blank line"
     )]
     MissingBlankLine {
         previous: ItemGroup,
@@ -37,6 +37,8 @@ pub(crate) enum Violation {
         "imports with `{group}` origin and the same visibility must not be separated by a blank line"
     )]
     UnexpectedBlankLine { group: ItemGroup },
+    #[display("test module `tests` must be private")]
+    TestModuleVisibility,
     #[display("`{found}` must appear before `{must_precede}`")]
     ItemOrder {
         found: ItemClass,
@@ -68,6 +70,8 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         let mut run = OrderedRun::default();
 
         for item in items {
+            self.check_test_module_visibility(item);
+
             match ClassifiedItem::from_ast(item, &scope) {
                 Some(classified) => self.check_classified(classified, &mut run),
                 None => run.clear(),
@@ -81,6 +85,18 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         self.check_group_separation(&classified, run);
         self.check_order(&classified, run);
         run.remember_item(&classified);
+    }
+
+    fn check_test_module_visibility(&mut self, item: &Item) {
+        let Item::Mod(item) = item else {
+            return;
+        };
+
+        if ClassifiedItem::is_conventional_test_module(item)
+            && !matches!(&item.vis, syn::Visibility::Inherited)
+        {
+            self.report(item.mod_token.span, Violation::TestModuleVisibility);
+        }
     }
 
     fn check_group_separation(&mut self, current: &ClassifiedItem, run: &OrderedRun) {
@@ -438,6 +454,66 @@ mod tests {
                 found: ItemClass::new(ItemKind::Use, Visibility::Private),
                 must_precede: ItemClass::new(ItemKind::Mod, Visibility::Private),
             })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_conventional_test_module_after_ordinary_modules() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            mod test_support {}
+
+            pub mod code_module {}
+
+            #[cfg(test)]
+            mod tests {}
+            "#,
+        )?;
+
+        assert!(violations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn requires_conventional_test_module_after_ordinary_modules() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            mod tests {}
+
+            pub mod code_module {}
+            "#,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::ItemOrder {
+                found: ItemClass::new(ItemKind::Mod, Visibility::Public),
+                must_precede: ItemClass::new(ItemKind::TestModule, Visibility::Private),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn requires_conventional_test_module_to_be_private() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            pub mod tests {}
+            "#,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::TestModuleVisibility)
         );
         Ok(())
     }

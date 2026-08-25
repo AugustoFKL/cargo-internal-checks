@@ -9,6 +9,7 @@ use syn::{Item, UseTree};
 pub(super) enum ItemKind {
     Use,
     Mod,
+    TestModule,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +38,7 @@ impl ItemClass {
             (ItemKind::Mod, Visibility::Private) => 3,
             (ItemKind::Mod, Visibility::Crate) => 4,
             (ItemKind::Mod, Visibility::Public) => 5,
+            (ItemKind::TestModule, _) => 6,
         }
     }
 }
@@ -50,6 +52,7 @@ impl fmt::Display for ItemClass {
             (ItemKind::Mod, Visibility::Private) => "mod",
             (ItemKind::Mod, Visibility::Crate) => "pub(crate) mod",
             (ItemKind::Mod, Visibility::Public) => "pub mod",
+            (ItemKind::TestModule, _) => "#[cfg(test)] mod tests",
         };
         formatter.write_str(text)
     }
@@ -72,17 +75,35 @@ impl ClassifiedItem {
                 end_line: item.semi_token.span.end().line,
                 import_key: Some(ImportKey::from_tree(&item.tree, scope)),
             }),
-            Item::Mod(item) => Some(Self {
-                class: ItemClass::new(ItemKind::Mod, Self::visibility(&item.vis)?),
-                span: item.mod_token.span,
-                end_line: item.semi.as_ref().map_or_else(
-                    || item.mod_token.span.end().line,
-                    |semi| semi.span.end().line,
-                ),
-                import_key: None,
-            }),
+            Item::Mod(item) => {
+                let kind = if Self::is_conventional_test_module(item) {
+                    ItemKind::TestModule
+                } else {
+                    ItemKind::Mod
+                };
+
+                Some(Self {
+                    class: ItemClass::new(kind, Self::visibility(&item.vis)?),
+                    span: item.mod_token.span,
+                    end_line: item.semi.as_ref().map_or_else(
+                        || item.mod_token.span.end().line,
+                        |semi| semi.span.end().line,
+                    ),
+                    import_key: None,
+                })
+            }
             _ => None,
         }
+    }
+
+    pub(super) fn is_conventional_test_module(item: &syn::ItemMod) -> bool {
+        item.ident == "tests"
+            && item.attrs.iter().any(|attribute| {
+                attribute.path().is_ident("cfg")
+                    && attribute
+                        .parse_args::<syn::Path>()
+                        .is_ok_and(|path| path.is_ident("test"))
+            })
     }
 
     fn visibility(visibility: &syn::Visibility) -> Option<Visibility> {
@@ -220,9 +241,10 @@ mod tests {
             ItemClass::new(ItemKind::Mod, Visibility::Private),
             ItemClass::new(ItemKind::Mod, Visibility::Crate),
             ItemClass::new(ItemKind::Mod, Visibility::Public),
+            ItemClass::new(ItemKind::TestModule, Visibility::Private),
         ];
 
-        assert_eq!(classes.map(ItemClass::rank), [0, 1, 2, 3, 4, 5]);
+        assert_eq!(classes.map(ItemClass::rank), [0, 1, 2, 3, 4, 5, 6]);
         assert_eq!(
             classes.map(|class| class.to_string()),
             [
@@ -231,7 +253,8 @@ mod tests {
                 "pub use",
                 "mod",
                 "pub(crate) mod",
-                "pub mod"
+                "pub mod",
+                "#[cfg(test)] mod tests"
             ]
         );
     }

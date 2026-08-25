@@ -265,6 +265,25 @@ pub mod device_buffer;
     }
 
     #[test]
+    fn moves_conventional_test_module_after_ordinary_modules() -> Result<()> {
+        let source = r#"#[cfg(test)]
+mod tests {}
+
+pub mod code_module {}
+"#;
+
+        assert_eq!(
+            fixed(source)?,
+            r#"pub mod code_module {}
+
+#[cfg(test)]
+mod tests {}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
     fn groups_interleaved_imports_and_modules() -> Result<()> {
         let fixed = fixed(
             r#"//! Verification and formatting of Rust import order.

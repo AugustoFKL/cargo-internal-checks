@@ -12,6 +12,7 @@ to `rustfmt`, another lint, or code review.
 | Convention                                               | Checked  | Fixed with `--fix` |
 |----------------------------------------------------------|:--------:|:------------------:|
 | `use` and `mod` item order                               |   Yes    |   Yes, when safe   |
+| Conventional `#[cfg(test)] mod tests` placement/privacy  |   Yes    |   Placement only   |
 | Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |
 | Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |
 | No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |
@@ -35,9 +36,15 @@ Every contiguous run of supported `use` and `mod` items must follow this order:
 4. `mod`
 5. `pub(crate) mod`
 6. `pub mod`
+7. private `#[cfg(test)] mod tests`
 
 Visibility is part of the class. For example, every `pub(crate) use` in a run must appear after all private `use` items
 and before all `pub use` items.
+
+The final class is recognized only when a module is named `tests` and has a direct `#[cfg(test)]` attribute. It must use
+private visibility. A differently named `#[cfg(test)]` module remains an ordinary module, so test-only support modules
+can retain their normal place in the module order. Compound predicates such as `#[cfg(all(test, feature = "extra"))]`
+are not treated as the conventional test module.
 
 ### Why
 
@@ -51,6 +58,9 @@ type, constant, or macro invocation.
 
 The only supported visibilities are private, `pub(crate)`, and `pub`. Restricted forms such as `pub(super)` and
 `pub(in path)` are not ordered and therefore end a run.
+
+The conventional test module is required to be last only within its contiguous run. This rule does not move it across
+functions, types, macros, or other items that end a run.
 
 Outer attributes and ordinary comments do not end a checker run because the checker operates on parsed items. Inline
 modules are checked recursively and independently, using the declarations in each module as that module's local scope.
@@ -75,10 +85,26 @@ const CAPACITY: usize = 16;
 use crate::Private;
 ```
 
+This is valid because `test_support` remains an ordinary private module while the conventional `tests` module ends the
+run:
+
+```rust
+#[cfg(test)]
+mod test_support {}
+
+pub mod code_module {}
+
+#[cfg(test)]
+mod tests {}
+```
+
+Writing `pub mod tests` or any other explicit visibility on the conventional test module is invalid.
+
 ### Automatic fixing
 
-`--fix` stably sorts a run by class and import origin. It moves outer attributes with their item and
-preserves the existing order inside one import group.
+`--fix` stably sorts a run by class and import origin. It moves outer attributes with their item, moves the conventional
+test module to the end of its run, and preserves the existing order inside one import group. It does not remove an
+invalid visibility from the test module; that diagnostic requires a manual change.
 
 The fixer leaves an entire run unchanged when non-whitespace text occurs between its items. This includes ordinary
 comments, whose ownership cannot be inferred safely. The checker can still report ordering or spacing violations in that
