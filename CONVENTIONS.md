@@ -223,7 +223,8 @@ pub enum Error {
 }
 ```
 
-The checker evaluates order and spacing independently. One pair of variants can therefore produce both diagnostics.
+The checker evaluates order and spacing independently. One pair of variants can therefore produce both diagnostics,
+unless an ordinary comment blocks the enum from being fixed safely.
 
 ### Comments between variants
 
@@ -251,6 +252,10 @@ enum Error {
     Second,
 }
 ```
+
+When an enum contains ordinary comments between variants, the checker reports those comments and suppresses its
+alphabetical-order and spacing diagnostics for that enum. Resolve every comment first; the next `--fix` run can then
+order and space the variants safely.
 
 ### Why
 

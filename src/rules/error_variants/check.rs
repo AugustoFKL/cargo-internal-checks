@@ -66,8 +66,37 @@ impl<'a, 'source> ErrorVariantChecker<'a, 'source> {
             return;
         };
 
+        if self.check_ordinary_comments(error_enum) {
+            return;
+        }
+
         self.check_variant_order(error_enum);
         self.check_variant_spacing(error_enum);
+    }
+
+    fn check_ordinary_comments(&mut self, error_enum: ErrorEnum<'_>) -> bool {
+        let mut variants = error_enum.variants().iter();
+        let Some(mut previous) = variants.next() else {
+            return false;
+        };
+        let mut found = false;
+
+        for current in variants {
+            if self.has_ordinary_comment_between(previous, current) {
+                found = true;
+                self.report(
+                    current.ident.span(),
+                    Violation::OrdinaryComment {
+                        previous: previous.ident.unraw().to_string(),
+                        current: current.ident.unraw().to_string(),
+                    },
+                );
+            }
+
+            previous = current;
+        }
+
+        found
     }
 
     fn check_variant_order(&mut self, error_enum: ErrorEnum<'_>) {
@@ -107,24 +136,14 @@ impl<'a, 'source> ErrorVariantChecker<'a, 'source> {
             let previous_name = previous.ident.unraw().to_string();
             let current_name = current.ident.unraw().to_string();
 
-            let violation = if self.has_ordinary_comment_between(previous, current) {
-                Some(Violation::OrdinaryComment {
-                    previous: previous_name,
-                    current: current_name,
-                })
-            } else if !self
-                .has_one_empty_line(previous.span().end().line, current.span().start().line)
-            {
-                Some(Violation::Spacing {
-                    previous: previous_name,
-                    current: current_name,
-                })
-            } else {
-                None
-            };
-
-            if let Some(violation) = violation {
-                self.report(current.ident.span(), violation);
+            if !self.has_one_empty_line(previous.span().end().line, current.span().start().line) {
+                self.report(
+                    current.ident.span(),
+                    Violation::Spacing {
+                        previous: previous_name,
+                        current: current_name,
+                    },
+                );
             }
 
             previous = current;
@@ -228,6 +247,22 @@ enum Error {
     /// The second error.
     #[error("second")]
     Second { source: String },
+}
+"#;
+
+        assert!(violations(source)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_comment_markers_inside_variant_rustdoc() -> Result<()> {
+        let source = r#"
+#[derive(Error)]
+enum Error {
+    First,
+
+    /// This should accept // and /*
+    Second,
 }
 "#;
 
@@ -349,17 +384,41 @@ enum Error {
         let source = r#"
 #[derive(Error)]
 enum Error {
-    ParameterCreation(String),
+    Second(String),
 
     // RLWE core errors
-    PlaintextCreation(String),
+    First(String),
 }
 "#;
 
         assert_eq!(
             messages(source)?,
             [
-                "ordinary comments between error variants `ParameterCreation` and `PlaintextCreation` are unsupported; use Rustdoc (`///`) on `PlaintextCreation`"
+                "ordinary comments between error variants `Second` and `First` are unsupported; use Rustdoc (`///`) on `First`"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reports_all_comments_before_other_violations_in_the_enum() -> Result<()> {
+        let source = r#"
+#[derive(Error)]
+enum Error {
+    Third,
+    // First section.
+    Second,
+
+    /* Second section. */
+    First,
+}
+"#;
+
+        assert_eq!(
+            messages(source)?,
+            [
+                "ordinary comments between error variants `Third` and `Second` are unsupported; use Rustdoc (`///`) on `Second`",
+                "ordinary comments between error variants `Second` and `First` are unsupported; use Rustdoc (`///`) on `First`",
             ]
         );
         Ok(())
