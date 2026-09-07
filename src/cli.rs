@@ -18,6 +18,14 @@ pub(crate) struct Cli {
     #[arg(long, value_name = "PATH")]
     manifest_path: Option<PathBuf>,
 
+    /// Rust files or directories to check. May be repeated.
+    #[arg(long = "path", value_name = "PATH")]
+    paths: Vec<PathBuf>,
+
+    /// Check only files changed in Git, including untracked files.
+    #[arg(long)]
+    changed: bool,
+
     /// Rewrite imports, module declarations, and error variants.
     /// Run the project's rustfmt afterward.
     #[arg(long)]
@@ -35,6 +43,14 @@ impl Cli {
 
     pub(crate) fn manifest_path(&self) -> Option<&Path> {
         self.manifest_path.as_deref()
+    }
+
+    pub(crate) fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
+    pub(crate) fn changed(&self) -> bool {
+        self.changed
     }
 
     pub(crate) fn fix(&self) -> bool {

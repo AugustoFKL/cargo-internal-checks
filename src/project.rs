@@ -1,12 +1,15 @@
 use std::{
     collections::BTreeSet,
     ffi::OsStr,
+    fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
 use cargo_metadata::{MetadataCommand, Package};
 use walkdir::{DirEntry, WalkDir};
+
+use crate::git;
 
 /// The portion of a Cargo workspace selected for checking.
 #[derive(Debug, Clone)]
@@ -24,8 +27,27 @@ impl Project {
         &self.workspace_root
     }
 
-    pub(crate) fn rust_files(&self) -> Result<Vec<PathBuf>> {
-        self.sources.rust_files()
+    pub(crate) fn rust_files(
+        &self,
+        requested_paths: &[PathBuf],
+        changed_only: bool,
+    ) -> Result<Vec<PathBuf>> {
+        let files = self.sources.rust_files(requested_paths)?;
+        if !changed_only {
+            return Ok(files);
+        }
+
+        let changed_files = git::changed_files(&self.workspace_root)?;
+        let mut selected = Vec::new();
+        for file in files {
+            let canonical = fs::canonicalize(&file)
+                .with_context(|| format!("failed to resolve Rust source `{}`", file.display()))?;
+            if changed_files.contains(&canonical) {
+                selected.push(file);
+            }
+        }
+
+        Ok(selected)
     }
 }
 
@@ -137,7 +159,7 @@ struct SourceSet {
 }
 
 impl SourceSet {
-    fn rust_files(&self) -> Result<Vec<PathBuf>> {
+    fn rust_files(&self, requested_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
         let rules = TraversalRules {
             target_directory: &self.target_directory,
             workspace_package_roots: &self.workspace_package_roots,
@@ -148,7 +170,7 @@ impl SourceSet {
             self.collect_package_files(package, &rules, &mut files)?;
         }
 
-        Ok(files.into_iter().collect())
+        PathSelection::from_paths(requested_paths)?.filter(files)
     }
 
     fn collect_package_files(
@@ -172,6 +194,108 @@ impl SourceSet {
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+struct PathSelection {
+    selectors: Vec<PathSelector>,
+}
+
+impl PathSelection {
+    fn from_paths(paths: &[PathBuf]) -> Result<Self> {
+        Ok(Self {
+            selectors: paths
+                .iter()
+                .map(|path| PathSelector::from_path(path))
+                .collect::<Result<_>>()?,
+        })
+    }
+
+    fn filter(&self, files: BTreeSet<PathBuf>) -> Result<Vec<PathBuf>> {
+        if self.selectors.is_empty() {
+            return Ok(files.into_iter().collect());
+        }
+
+        let mut matched = vec![false; self.selectors.len()];
+        let mut selected = Vec::new();
+
+        for file in files {
+            let canonical = fs::canonicalize(&file)
+                .with_context(|| format!("failed to resolve Rust source `{}`", file.display()))?;
+            let mut include = false;
+
+            for (index, selector) in self.selectors.iter().enumerate() {
+                if selector.selects(&canonical) {
+                    matched[index] = true;
+                    include = true;
+                }
+            }
+
+            if include {
+                selected.push(file);
+            }
+        }
+
+        if let Some(index) = matched.iter().position(|matched| !matched) {
+            bail!(
+                "path `{}` does not select any Rust files from the selected workspace packages",
+                self.selectors[index].supplied.display()
+            );
+        }
+
+        Ok(selected)
+    }
+}
+
+#[derive(Debug)]
+struct PathSelector {
+    supplied: PathBuf,
+    canonical: PathBuf,
+    kind: SelectedPathKind,
+}
+
+impl PathSelector {
+    fn from_path(path: &Path) -> Result<Self> {
+        let canonical = fs::canonicalize(path)
+            .with_context(|| format!("failed to resolve selected path `{}`", path.display()))?;
+        let metadata = fs::metadata(&canonical)
+            .with_context(|| format!("failed to inspect selected path `{}`", path.display()))?;
+
+        let kind = if metadata.is_dir() {
+            SelectedPathKind::Directory
+        } else if metadata.is_file() && canonical.extension() == Some(OsStr::new("rs")) {
+            SelectedPathKind::RustFile
+        } else if metadata.is_file() {
+            bail!(
+                "selected path `{}` is not a Rust source file",
+                path.display()
+            );
+        } else {
+            bail!(
+                "selected path `{}` is neither a file nor a directory",
+                path.display()
+            );
+        };
+
+        Ok(Self {
+            supplied: path.to_path_buf(),
+            canonical,
+            kind,
+        })
+    }
+
+    fn selects(&self, candidate: &Path) -> bool {
+        match self.kind {
+            SelectedPathKind::RustFile => candidate == self.canonical,
+            SelectedPathKind::Directory => candidate.starts_with(&self.canonical),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelectedPathKind {
+    RustFile,
+    Directory,
 }
 
 struct TraversalRules<'a> {
@@ -271,8 +395,80 @@ mod tests {
         };
 
         assert_eq!(
-            sources.rust_files()?,
+            sources.rust_files(&[])?,
             [root.join("build.rs"), root.join("src/lib.rs")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn filters_sources_by_selected_files_and_directories() -> Result<()> {
+        let temp = TempDirectory::new()?;
+        let root = &temp.path;
+        let nested = root.join("src/nested");
+        fs::create_dir_all(&nested)?;
+
+        let direct = root.join("src/direct.rs");
+        let nested_first = nested.join("first.rs");
+        let nested_second = nested.join("second.rs");
+        let excluded = root.join("src/excluded.rs");
+        for path in [&direct, &nested_first, &nested_second, &excluded] {
+            fs::write(path, "pub struct Source;")?;
+        }
+
+        let sources = SourceSet {
+            packages: vec![PackageRoot {
+                name: "fixture".to_owned(),
+                root: root.clone(),
+            }],
+            target_directory: root.join("target"),
+            workspace_package_roots: vec![root.clone()],
+        };
+
+        assert_eq!(
+            sources.rust_files(&[direct.clone(), nested.clone()])?,
+            [direct, nested_first, nested_second]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_non_rust_and_unmatched_selected_paths() -> Result<()> {
+        let temp = TempDirectory::new()?;
+        let root = &temp.path;
+        let child = root.join("child");
+        fs::create_dir_all(root.join("src"))?;
+        fs::create_dir_all(child.join("src"))?;
+        fs::write(root.join("src/lib.rs"), "pub struct Included;")?;
+        fs::write(root.join("README.md"), "not Rust")?;
+        let child_source = child.join("src/lib.rs");
+        fs::write(&child_source, "pub struct OtherPackage;")?;
+
+        let sources = SourceSet {
+            packages: vec![PackageRoot {
+                name: "parent".to_owned(),
+                root: root.clone(),
+            }],
+            target_directory: root.join("target"),
+            workspace_package_roots: vec![root.clone(), child],
+        };
+
+        assert!(
+            sources
+                .rust_files(&[root.join("README.md")])
+                .is_err_and(|error| error.to_string().contains("not a Rust source file"))
+        );
+        assert!(
+            sources
+                .rust_files(&[child_source])
+                .is_err_and(|error| error.to_string().contains("does not select any Rust files"))
+        );
+        assert!(
+            sources
+                .rust_files(&[root.join("missing.rs")])
+                .is_err_and(|error| error
+                    .to_string()
+                    .contains("failed to resolve selected path"))
         );
         Ok(())
     }

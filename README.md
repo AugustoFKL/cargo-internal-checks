@@ -33,6 +33,48 @@ Use a different manifest with:
 cargo internal-checks --manifest-path path/to/Cargo.toml
 ```
 
+### Selecting files and directories
+
+Use `--path` to limit checking to particular Rust files or directories:
+
+```bash
+cargo internal-checks --path src/schemes/ngfhe/error.rs
+cargo internal-checks --path src/schemes/ngfhe
+cargo internal-checks --path crates/math --path crates/crypto
+```
+
+A file selects exactly that Rust source file. A directory selects Rust files recursively beneath it, and `--path` may
+be repeated. Relative paths are resolved from the directory where the command is invoked.
+
+Path selection is applied within the packages selected by `-p`, or within all workspace packages when `-p` is omitted.
+Missing paths, non-Rust files, and paths that contain no Rust files from the selected packages are errors. `--fix`
+modifies only the selected files.
+
+Paths select filesystem files rather than Rust modules. All inline modules within a selected file are checked; an
+individual inline module cannot be selected independently.
+
+### Selecting changed files
+
+Use `--changed` to check only Rust files changed in the current Git worktree or index:
+
+```bash
+cargo internal-checks --changed
+cargo internal-checks --fix --changed
+cargo internal-checks -p math --path src --changed
+```
+
+Changed files include staged changes, unstaged changes, renames at their current paths, and non-ignored untracked files.
+Deleted files are ignored. `--changed` intersects with `-p` and `--path`; when no eligible Rust files have changed, the
+command succeeds after checking zero files. The command reports an operational error when the selected workspace is not
+inside a Git repository or Git cannot determine its status.
+
+Selection is file-based rather than line-based. `--fix --changed` may therefore rewrite an entire import run or error
+enum within a changed file. When a file is partially staged, fixing it can create additional unstaged changes without
+changing the version already in Git's index.
+
+`--changed` describes local index and worktree changes relative to `HEAD`. It does not include files that are already
+committed on the current branch but differ from another branch such as `main`.
+
 Diagnostics use workspace-relative paths by default. Pass `-v` or `--verbose` to display absolute paths instead:
 
 ```bash
@@ -61,9 +103,10 @@ cargo internal-checks --fix
 
 ## File discovery
 
-For each selected package, the checker recursively scans Rust files under the package directory. It does not follow
-symlinks and does not descend into Cargo's target directory or `.git`. Results are deduplicated, which also avoids
-duplicate checks when package roots overlap.
+For each selected package, the checker recursively scans Rust files under the package directory, then applies any
+`--path` and `--changed` filters. It does not follow symlinks and does not descend into Cargo's target directory or
+`.git`. Results are deduplicated, which also avoids duplicate checks when package roots overlap or selected paths
+overlap.
 
 ## Releasing
 
