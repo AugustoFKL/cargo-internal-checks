@@ -309,7 +309,7 @@ fn reports_changed_selection_outside_a_git_repository() -> std::io::Result<()> {
     let output = project.run(&["--changed"])?;
     assert_eq!(output.status.code(), Some(2));
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("failed to locate the Git repository")
+        String::from_utf8_lossy(&output.stderr).contains("failed to locate the Git repository")
     );
     Ok(())
 }
@@ -324,6 +324,6 @@ fn runs_without_configuration_and_reports_invalid_rust() -> std::io::Result<()> 
     project.write("src/lib.rs", "fn invalid(")?;
     let output = project.run(&[])?;
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("failed to parse Rust source"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("failed to parse Rust source"));
     Ok(())
 }

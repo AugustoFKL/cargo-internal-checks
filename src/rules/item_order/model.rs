@@ -1,7 +1,6 @@
 use std::{collections::HashSet, fmt};
 
 use derive_more::Display;
-use itertools::Itertools;
 use proc_macro2::Span;
 use syn::{Item, UseTree, spanned::Spanned};
 
@@ -162,7 +161,12 @@ impl ImportKey {
             UseTree::Name(name) => name.ident.to_string(),
             UseTree::Rename(rename) => format!("{} as {}", rename.ident, rename.rename),
             UseTree::Glob(_) => "*".to_owned(),
-            UseTree::Group(group) => group.items.iter().map(Self::tree_path).join(","),
+            UseTree::Group(group) => group
+                .items
+                .iter()
+                .map(Self::tree_path)
+                .collect::<Vec<String>>()
+                .join(","),
         }
     }
 }

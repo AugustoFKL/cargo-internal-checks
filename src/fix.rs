@@ -1,5 +1,4 @@
 use std::{fs, path::Path};
-
 use anyhow::{Context, Result};
 use syn::Item;
 

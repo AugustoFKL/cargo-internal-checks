@@ -3,7 +3,6 @@ use std::{collections::BTreeSet, path::Path, process::ExitCode};
 
 use anyhow::Result;
 use clap::Parser;
-use tracing::{error, info};
 
 use crate::{cli::Cli, diagnostic::Violation, project::Project};
 
@@ -13,7 +12,6 @@ mod diagnostic;
 mod edit;
 mod fix;
 mod git;
-mod logging;
 mod project;
 mod rules;
 mod source;
@@ -23,16 +21,13 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(error) => {
-            error!("error: {error:#}");
+            eprintln!("error: {error:#}");
             ExitCode::from(2)
         }
     }
 }
 
 fn run() -> Result<bool> {
-    logging::setup()?;
-    info!("logging setup");
-
     let args = Cli::parse();
     let project = Project::discover(args.manifest_path(), args.packages())?;
     let files = project.rust_files(args.paths(), args.changed())?;
@@ -42,9 +37,9 @@ fn run() -> Result<bool> {
         for path in &files {
             fixed += usize::from(fix::fix_file(path)?);
         }
-        info!("internal-checks: fixed {fixed} Rust file(s)");
+        eprintln!("internal-checks: fixed {fixed} Rust file(s)");
         if fixed > 0 {
-            info!("internal-checks: run the project's rustfmt to format imports within groups");
+            eprintln!("internal-checks: run the project's rustfmt to format imports within groups");
         }
     }
 
@@ -54,7 +49,7 @@ fn run() -> Result<bool> {
     }
 
     if violations.is_empty() {
-        info!(
+        eprintln!(
             "internal-checks: checked {} Rust file(s); no violations",
             files.len()
         );
@@ -70,7 +65,7 @@ fn run() -> Result<bool> {
         .map(|violation| violation.path())
         .collect();
 
-    error!(
+    eprintln!(
         "internal-checks: found {} violation(s) in {} file(s)",
         violations.len(),
         affected_files.len()
