@@ -31,13 +31,16 @@ impl Project {
         &self,
         requested_paths: &[PathBuf],
         changed_only: bool,
+        changed_since: Option<&str>,
     ) -> Result<Vec<PathBuf>> {
         let files = self.sources.rust_files(requested_paths)?;
-        if !changed_only {
+        let changed_files = if let Some(revision) = changed_since {
+            git::changed_files_since(&self.workspace_root, revision)?
+        } else if changed_only {
+            git::changed_files(&self.workspace_root)?
+        } else {
             return Ok(files);
-        }
-
-        let changed_files = git::changed_files(&self.workspace_root)?;
+        };
         let mut selected = Vec::new();
         for file in files {
             let canonical = fs::canonicalize(&file)

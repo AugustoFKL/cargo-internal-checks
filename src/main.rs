@@ -30,7 +30,7 @@ fn main() -> ExitCode {
 fn run() -> Result<bool> {
     let args = Cli::parse();
     let project = Project::discover(args.manifest_path(), args.packages())?;
-    let files = project.rust_files(args.paths(), args.changed())?;
+    let files = project.rust_files(args.paths(), args.changed(), args.changed_since())?;
 
     if args.fix() {
         let mut fixed = 0;

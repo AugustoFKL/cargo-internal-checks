@@ -26,6 +26,11 @@ pub(crate) struct Cli {
     #[arg(long)]
     changed: bool,
 
+    /// Check files changed since REV diverged from HEAD, including local
+    /// changes.
+    #[arg(long, value_name = "REV", conflicts_with = "changed")]
+    changed_since: Option<String>,
+
     /// Rewrite imports, module declarations, and error variants.
     /// Run the project's rustfmt afterward.
     #[arg(long)]
@@ -51,6 +56,10 @@ impl Cli {
 
     pub(crate) fn changed(&self) -> bool {
         self.changed
+    }
+
+    pub(crate) fn changed_since(&self) -> Option<&str> {
+        self.changed_since.as_deref()
     }
 
     pub(crate) fn fix(&self) -> bool {

@@ -75,6 +75,24 @@ changing the version already in Git's index.
 `--changed` describes local index and worktree changes relative to `HEAD`. It does not include files that are already
 committed on the current branch but differ from another branch such as `main`.
 
+Use `--changed-since REV` to include those committed branch changes as well as current local changes:
+
+```bash
+cargo internal-checks --changed-since origin/main
+cargo internal-checks --fix --changed-since main
+cargo internal-checks -p math --path src --changed-since HEAD~3
+```
+
+`REV` must resolve to a commit, such as a branch, tag, commit hash, or expression like `HEAD~3`. The command selects the
+union of files changed from the merge base of `REV` and `HEAD` to `HEAD`, plus the staged, unstaged, renamed, and
+non-ignored untracked files selected by `--changed`. This isolates the current branch's changes when `REV` is another
+branch. `--changed` and `--changed-since` are mutually exclusive because `--changed-since` already includes local
+changes.
+
+The comparison requires enough repository history to find a merge base. An invalid revision, unrelated history, or an
+insufficiently deep clone produces an operational error. Fixing still modifies only current working-tree files;
+deleted files are ignored.
+
 Diagnostics use workspace-relative paths by default. Pass `-v` or `--verbose` to display absolute paths instead:
 
 ```bash
@@ -104,7 +122,7 @@ cargo internal-checks --fix
 ## File discovery
 
 For each selected package, the checker recursively scans Rust files under the package directory, then applies any
-`--path` and `--changed` filters. It does not follow symlinks and does not descend into Cargo's target directory or
+`--path` and Git-change filters. It does not follow symlinks and does not descend into Cargo's target directory or
 `.git`. Results are deduplicated, which also avoids duplicate checks when package roots overlap or selected paths
 overlap.
 
