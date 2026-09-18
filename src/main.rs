@@ -56,8 +56,13 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
+    let mut previous_path = None;
     for violation in &violations {
+        if previous_path.is_some_and(|path| path != violation.path()) {
+            eprintln!();
+        }
         print_violation(violation, project.workspace_root(), args.verbose());
+        previous_path = Some(violation.path());
     }
 
     let affected_files: BTreeSet<_> = violations

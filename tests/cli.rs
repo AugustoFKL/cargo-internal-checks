@@ -161,6 +161,43 @@ mod errors {
 }
 
 #[test]
+fn separates_diagnostics_from_different_files() -> std::io::Result<()> {
+    let project = TestProject::new("pub struct Valid;\n")?;
+    project.write(
+        "src/first.rs",
+        "use crate::a::A;\n\nuse crate::b::B;\n\nuse crate::c::C;\n",
+    )?;
+    project.write("src/second.rs", "use crate::a::A;\n\nuse crate::b::B;\n")?;
+
+    let output = project.run(&[])?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1));
+
+    let lines: Vec<_> = stderr.lines().collect();
+    let first_path = Path::new("src").join("first.rs").display().to_string();
+    let second_path = Path::new("src").join("second.rs").display().to_string();
+    let first_diagnostics: Vec<_> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| line.starts_with(&first_path).then_some(index))
+        .collect();
+    let Some(second_diagnostic) = lines.iter().position(|line| line.starts_with(&second_path))
+    else {
+        panic!("missing diagnostic for second file: {stderr}");
+    };
+
+    assert_eq!(
+        first_diagnostics.len(),
+        2,
+        "unexpected diagnostics: {stderr}"
+    );
+    assert_eq!(first_diagnostics[1], first_diagnostics[0] + 1);
+    assert_eq!(second_diagnostic, first_diagnostics[1] + 2);
+    assert!(lines[first_diagnostics[1] + 1].is_empty());
+    Ok(())
+}
+
+#[test]
 fn accepts_package_option_without_configuration() -> std::io::Result<()> {
     let project = TestProject::new("use std::path::Path;\n")?;
 
