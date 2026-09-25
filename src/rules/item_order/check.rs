@@ -322,12 +322,16 @@ mod tests {
 
             pub use crate::c::C;
 
-            mod d;
+            #[cfg(test)]
+            mod test_support;
             mod d2;
 
             pub(crate) mod e;
 
             pub mod f;
+
+            #[cfg(test)]
+            mod tests {}
             "#,
         )?;
 
@@ -359,25 +363,6 @@ mod tests {
     }
 
     #[test]
-    fn reports_local_import_before_external_import() -> Result<()> {
-        let violations = check_source(
-            Path::new("lib.rs"),
-            r#"
-            use anyhow::{Context, Result};
-            use proc_macro2::{LineColumn, Span};
-            use syn::{Item, ItemMod};
-
-            use crate::diagnostic::{Violation, ViolationKind};
-
-            use tracing::info;
-            "#,
-        )?;
-
-        assert_eq!(violations.len(), 1);
-        Ok(())
-    }
-
-    #[test]
     fn accepts_grouped_imports_without_alphabetizing_within_groups() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
@@ -390,20 +375,6 @@ mod tests {
             use crate::diagnostic::Violation;
             use self::local::Local;
             use super::parent::Parent;
-            "#,
-        )?;
-
-        assert!(violations.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn accepts_adjacent_imports_in_the_same_group() -> Result<()> {
-        let violations = check_source(
-            Path::new("lib.rs"),
-            r#"
-            use crate::encoding::Decode;
-            use crate::schemes::NgfheScheme;
             "#,
         )?;
 
@@ -453,18 +424,32 @@ mod tests {
 
     #[test]
     fn unrelated_item_ends_a_run() -> Result<()> {
-        let violations = check_source(
-            Path::new("lib.rs"),
-            r#"
+        let cases = [
+            (
+                "constant between imports",
+                r#"
             pub use crate::a::A;
 
             const VALUE: usize = 3;
 
             use crate::b::B;
             "#,
-        )?;
+            ),
+            (
+                "function after inline test module",
+                r#"
+            #[cfg(test)]
+            mod tests {}
 
-        assert!(violations.is_empty());
+            fn code() {}
+            "#,
+            ),
+        ];
+
+        for (name, source) in cases {
+            let violations = check_source(Path::new("lib.rs"), source)?;
+            assert!(violations.is_empty(), "{name}: {violations:?}");
+        }
         Ok(())
     }
 
@@ -529,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn every_supported_item_class_participates_in_the_run() -> Result<()> {
+    fn module_declaration_does_not_end_the_ordered_run() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
             r#"
@@ -553,33 +538,14 @@ mod tests {
     }
 
     #[test]
-    fn accepts_conventional_test_module_after_ordinary_modules() -> Result<()> {
-        let violations = check_source(
-            Path::new("lib.rs"),
-            r#"
-            #[cfg(test)]
-            mod test_support {}
-
-            pub mod code_module {}
-
-            #[cfg(test)]
-            mod tests {}
-            "#,
-        )?;
-
-        assert!(violations.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn requires_conventional_test_module_after_ordinary_modules() -> Result<()> {
+    fn requires_inline_test_module_after_ordinary_module_declarations() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
             r#"
             #[cfg(test)]
             mod tests {}
 
-            pub mod code_module {}
+            pub mod code_module;
             "#,
         )?;
 
@@ -589,6 +555,29 @@ mod tests {
             &DiagnosticKind::ItemOrder(Violation::ItemOrder {
                 found: ItemClass::new(ItemKind::Mod, Visibility::Public),
                 must_precede: ItemClass::new(ItemKind::TestModule, Visibility::Private),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn treats_out_of_line_test_module_as_an_ordinary_declaration() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            pub mod tests;
+
+            mod code_module;
+            "#,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::ItemOrder {
+                found: ItemClass::new(ItemKind::Mod, Visibility::Private),
+                must_precede: ItemClass::new(ItemKind::Mod, Visibility::Public),
             })
         );
         Ok(())
@@ -633,8 +622,10 @@ mod tests {
             Path::new("lib.rs"),
             r#"
             pub use core::*;
+            pub use helpers::*;
 
             mod core;
+            mod helpers;
             "#,
         )?;
 

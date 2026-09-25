@@ -77,7 +77,12 @@ impl ClassifiedItem {
                 import_key: Some(ImportKey::from_tree(&item.tree, scope)),
             }),
             Item::Mod(item) => {
-                let kind = if Self::is_conventional_test_module(item) {
+                let is_conventional_test_module = Self::is_conventional_test_module(item);
+                if item.content.is_some() && !is_conventional_test_module {
+                    return None;
+                }
+
+                let kind = if is_conventional_test_module {
                     ItemKind::TestModule
                 } else {
                     ItemKind::Mod
@@ -87,10 +92,7 @@ impl ClassifiedItem {
                     class: ItemClass::new(kind, Self::visibility(&item.vis)?),
                     span: item.mod_token.span,
                     full_span: item.span(),
-                    end_line: item.semi.as_ref().map_or_else(
-                        || item.mod_token.span.end().line,
-                        |semi| semi.span.end().line,
-                    ),
+                    end_line: item.span().end().line,
                     import_key: None,
                 })
             }
@@ -99,7 +101,8 @@ impl ClassifiedItem {
     }
 
     pub(super) fn is_conventional_test_module(item: &syn::ItemMod) -> bool {
-        item.ident == "tests"
+        item.content.is_some()
+            && item.ident == "tests"
             && item.attrs.iter().any(|attribute| {
                 attribute.path().is_ident("cfg")
                     && attribute
@@ -237,6 +240,8 @@ impl ItemPlacement {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+
     use super::*;
 
     #[test]
@@ -264,5 +269,33 @@ mod tests {
                 "#[cfg(test)] mod tests"
             ]
         );
+    }
+
+    #[test]
+    fn classifies_module_declarations_but_not_inline_module_definitions() -> Result<()> {
+        let declaration = syn::parse_str::<Item>("pub mod declaration;")?;
+        let inline_definition = syn::parse_str::<Item>("pub mod inline_definition {}")?;
+        let inline_tests = syn::parse_str::<Item>("#[cfg(test)] mod tests {}")?;
+        let declared_tests = syn::parse_str::<Item>("#[cfg(test)] mod tests;")?;
+        let scope = ModuleScope::default();
+
+        assert!(ClassifiedItem::from_ast(&declaration, &scope).is_some());
+        assert!(ClassifiedItem::from_ast(&inline_definition, &scope).is_none());
+        let Some(inline_tests) = ClassifiedItem::from_ast(&inline_tests, &scope) else {
+            panic!("inline test module should be classified");
+        };
+        assert_eq!(
+            inline_tests.class,
+            ItemClass::new(ItemKind::TestModule, Visibility::Private)
+        );
+        let Some(declared_tests) = ClassifiedItem::from_ast(&declared_tests, &scope) else {
+            panic!("out-of-line test module should be classified");
+        };
+        assert_eq!(
+            declared_tests.class,
+            ItemClass::new(ItemKind::Mod, Visibility::Private)
+        );
+
+        Ok(())
     }
 }

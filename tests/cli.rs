@@ -110,16 +110,20 @@ impl Drop for TestProject {
 
 #[test]
 fn reports_violations_and_fixes_them_idempotently() -> std::io::Result<()> {
-    let source = r#"mod errors {
+    let source = r#"mod declarations;
+use std::path::Path;
+
+mod errors {
     #[derive(Error)]
     enum Error {
         Second,
         First,
     }
 }
-use std::path::Path;
 "#;
     let expected = r#"use std::path::Path;
+
+mod declarations;
 
 mod errors {
     #[derive(Error)]
@@ -198,15 +202,6 @@ fn separates_diagnostics_from_different_files() -> std::io::Result<()> {
 }
 
 #[test]
-fn accepts_package_option_without_configuration() -> std::io::Result<()> {
-    let project = TestProject::new("use std::path::Path;\n")?;
-
-    let output = project.run(&["--package", "fixture"])?;
-    assert_eq!(output.status.code(), Some(0));
-    Ok(())
-}
-
-#[test]
 fn limits_checking_and_fixing_to_selected_paths() -> std::io::Result<()> {
     let project = TestProject::new("pub struct Valid;\n")?;
     let invalid = "mod errors;\nuse std::path::Path;\n";
@@ -236,16 +231,15 @@ fn limits_checking_and_fixing_to_selected_paths() -> std::io::Result<()> {
 #[test]
 fn accepts_repeated_file_and_directory_paths() -> std::io::Result<()> {
     let project = TestProject::new("pub struct Valid;\n")?;
-    project.write("src/direct.rs", "use crate::a::A;\n")?;
-    project.write(
-        "src/nested/invalid.rs",
-        "use crate::a::A;\n\nuse crate::b::B;\n",
-    )?;
+    let invalid = "use crate::a::A;\n\nuse crate::b::B;\n";
+    project.write("src/direct.rs", invalid)?;
+    project.write("src/nested/invalid.rs", invalid)?;
     project.write("src/excluded.rs", "fn invalid(")?;
 
     let output = project.run(&["--path", "src/direct.rs", "--path", "src/nested"])?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1));
+    assert!(stderr.contains(&Path::new("src").join("direct.rs").display().to_string()));
     assert!(
         stderr.contains(
             &Path::new("src")
@@ -474,6 +468,9 @@ fn runs_without_configuration_and_reports_invalid_rust() -> std::io::Result<()> 
     let project = TestProject::new("pub struct Valid;\n")?;
 
     let output = project.run(&[])?;
+    assert_eq!(output.status.code(), Some(0));
+
+    let output = project.run(&["--package", "fixture"])?;
     assert_eq!(output.status.code(), Some(0));
 
     project.write("src/lib.rs", "fn invalid(")?;

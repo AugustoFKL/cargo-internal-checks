@@ -248,8 +248,8 @@ enum Error {
 
     #[test]
     fn orders_variants_by_their_unraw_names() -> Result<()> {
-        let source = "#[derive(Error)]\nenum Error {\n    r#type,\n    r#match,\n}\n";
-        let expected = "#[derive(Error)]\nenum Error {\n    r#match,\n\n    r#type,\n}\n";
+        let source = "#[derive(Error)]\nenum Error {\n    other,\n    r#match,\n}\n";
+        let expected = "#[derive(Error)]\nenum Error {\n    r#match,\n\n    other,\n}\n";
 
         assert_eq!(fixed(source)?, expected);
         Ok(())

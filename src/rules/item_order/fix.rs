@@ -246,10 +246,24 @@ pub mod device_buffer;
 
     #[test]
     fn does_not_reorder_across_unrelated_items() -> Result<()> {
-        let source =
-            "pub use crate::public::A;\nconst BOUNDARY: usize = 1;\nuse std::path::Path;\n";
+        let cases = [
+            (
+                "constant between imports",
+                "pub use crate::public::A;\nconst BOUNDARY: usize = 1;\nuse std::path::Path;\n",
+            ),
+            (
+                "function after inline test module",
+                r#"#[cfg(test)]
+mod tests {}
 
-        assert_eq!(fixed(source)?, source);
+fn code() {}
+"#,
+            ),
+        ];
+
+        for (name, source) in cases {
+            assert_eq!(fixed(source)?, source, "{name}");
+        }
         Ok(())
     }
 
@@ -267,19 +281,102 @@ pub mod device_buffer;
     #[test]
     fn moves_conventional_test_module_after_ordinary_modules() -> Result<()> {
         let source = r#"#[cfg(test)]
-mod tests {}
+mod tests {
+    pub mod support;
 
-pub mod code_module {}
+    use crate::TestSupport;
+}
+
+pub mod code_module;
 "#;
 
         assert_eq!(
             fixed(source)?,
-            r#"pub mod code_module {}
+            r#"pub mod code_module;
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::TestSupport;
+
+    pub mod support;
+}
 "#
         );
+        Ok(())
+    }
+
+    #[test]
+    fn treats_out_of_line_test_module_as_an_ordinary_declaration() -> Result<()> {
+        let source = r#"#[cfg(test)]
+mod tests;
+
+pub mod code_module;
+"#;
+
+        assert_eq!(fixed(source)?, source);
+        Ok(())
+    }
+
+    #[test]
+    fn groups_declarations_without_moving_inline_module_definitions() -> Result<()> {
+        let source = r#"pub use traits::{AsCudaHandle, AsCudaRepr};
+
+mod impls;
+mod interface;
+mod traits;
+mod wrappers;
+
+pub mod bindings;
+pub mod error;
+pub mod memory;
+pub mod stream;
+
+pub use memory::{AsyncDeviceBuffer, DeviceBuffer};
+
+pub mod operations {
+    pub use crate::interface::{multiply_ciphertexts, switch_keys};
+}
+
+pub mod entities {
+    pub use crate::bindings::{CCudaModulus, CCudaPolyForm};
+}
+"#;
+
+        assert_eq!(
+            fixed(source)?,
+            r#"pub use traits::{AsCudaHandle, AsCudaRepr};
+pub use memory::{AsyncDeviceBuffer, DeviceBuffer};
+
+mod impls;
+mod interface;
+mod traits;
+mod wrappers;
+
+pub mod bindings;
+pub mod error;
+pub mod memory;
+pub mod stream;
+
+pub mod operations {
+    pub use crate::interface::{multiply_ciphertexts, switch_keys};
+}
+
+pub mod entities {
+    pub use crate::bindings::{CCudaModulus, CCudaPolyForm};
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_order_and_spacing_of_inline_module_definitions() -> Result<()> {
+        let source = r#"pub mod public_api {}
+
+mod private_implementation {}
+"#;
+
+        assert_eq!(fixed(source)?, source);
         Ok(())
     }
 

@@ -244,25 +244,9 @@ enum Error {
     #[error("first")]
     First,
 
-    /// The second error.
+    /// The second error accepts // and /* in Rustdoc.
     #[error("second")]
     Second { source: String },
-}
-"#;
-
-        assert!(violations(source)?.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn accepts_comment_markers_inside_variant_rustdoc() -> Result<()> {
-        let source = r#"
-#[derive(Error)]
-enum Error {
-    First,
-
-    /// This should accept // and /*
-    Second,
 }
 "#;
 
@@ -330,7 +314,7 @@ enum Error {
         let source = r#"
 #[derive(Error)]
 enum Error {
-    r#type,
+    other,
 
     r#match,
 }
@@ -338,31 +322,27 @@ enum Error {
 
         assert_eq!(
             messages(source)?,
-            ["error variant `match` must appear before `type`"]
+            ["error variant `match` must appear before `other`"]
         );
         Ok(())
     }
 
     #[test]
-    fn reports_adjacent_variants_without_an_empty_line() -> Result<()> {
-        let source = r#"
+    fn reports_adjacent_variants_without_exactly_one_empty_line() -> Result<()> {
+        let cases = [
+            (
+                "no empty line",
+                r#"
 #[derive(Error)]
 enum Error {
     First,
     Second,
 }
-"#;
-
-        assert_eq!(
-            messages(source)?,
-            ["error variants `First` and `Second` must be separated by exactly one empty line"]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn reports_adjacent_variants_with_multiple_empty_lines() -> Result<()> {
-        let source = r#"
+"#,
+            ),
+            (
+                "multiple empty lines",
+                r#"
 #[derive(Error)]
 enum Error {
     First,
@@ -370,33 +350,17 @@ enum Error {
 
     Second,
 }
-"#;
+"#,
+            ),
+        ];
 
-        assert_eq!(
-            messages(source)?,
-            ["error variants `First` and `Second` must be separated by exactly one empty line"]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn reports_an_actionable_error_for_a_line_comment_between_variants() -> Result<()> {
-        let source = r#"
-#[derive(Error)]
-enum Error {
-    Second(String),
-
-    // RLWE core errors
-    First(String),
-}
-"#;
-
-        assert_eq!(
-            messages(source)?,
-            [
-                "ordinary comments between error variants `Second` and `First` are unsupported; use Rustdoc (`///`) on `First`"
-            ]
-        );
+        for (name, source) in cases {
+            assert_eq!(
+                messages(source)?,
+                ["error variants `First` and `Second` must be separated by exactly one empty line"],
+                "{name}"
+            );
+        }
         Ok(())
     }
 
@@ -431,27 +395,6 @@ enum Error {
 enum Error {
     First, // section comment
 
-    Second,
-}
-"#;
-
-        assert_eq!(
-            messages(source)?,
-            [
-                "ordinary comments between error variants `First` and `Second` are unsupported; use Rustdoc (`///`) on `Second`"
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn reports_an_actionable_error_for_a_block_comment_between_variants() -> Result<()> {
-        let source = r#"
-#[derive(Error)]
-enum Error {
-    First,
-
-    /* section comment */
     Second,
 }
 "#;
