@@ -110,16 +110,20 @@ impl Drop for TestProject {
 
 #[test]
 fn reports_violations_and_fixes_them_idempotently() -> std::io::Result<()> {
-    let source = r#"mod errors {
+    let source = r#"mod declarations;
+use std::path::Path;
+
+mod errors {
     #[derive(Error)]
     enum Error {
         Second,
         First,
     }
 }
-use std::path::Path;
 "#;
     let expected = r#"use std::path::Path;
+
+mod declarations;
 
 mod errors {
     #[derive(Error)]

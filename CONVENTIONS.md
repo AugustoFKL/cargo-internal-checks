@@ -11,8 +11,8 @@ to `rustfmt`, another lint, or code review.
 
 | Convention                                               | Checked  | Fixed with `--fix` |
 |----------------------------------------------------------|:--------:|:------------------:|
-| `use` and `mod` item order                               |   Yes    |   Yes, when safe   |
-| Conventional `#[cfg(test)] mod tests` placement/privacy  |   Yes    |   Placement only   |
+| `use` and out-of-line `mod` item order                   |   Yes    |   Yes, when safe   |
+| Inline `#[cfg(test)] mod tests` placement/privacy        |   Yes    |   Placement only   |
 | Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |
 | Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |
 | No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |
@@ -29,7 +29,8 @@ refuses to rewrite the ambiguous source automatically.
 
 ### Rule
 
-Every contiguous run of supported `use` and `mod` items must follow this order:
+Every contiguous run of supported `use` items, out-of-line module declarations, and conventional inline test modules
+must follow this order:
 
 1. `use`
 2. `pub(crate) use`
@@ -37,15 +38,14 @@ Every contiguous run of supported `use` and `mod` items must follow this order:
 4. `mod`
 5. `pub(crate) mod`
 6. `pub mod`
-7. private `#[cfg(test)] mod tests`
+7. private `#[cfg(test)] mod tests { ... }`
 
 Visibility is part of the class. For example, every `pub(crate) use` in a run must appear after all private `use` items
 and before all `pub use` items.
 
-The final class is recognized only when a module is named `tests` and has a direct `#[cfg(test)]` attribute. It must use
-private visibility. A differently named `#[cfg(test)]` module remains an ordinary module, so test-only support modules
-can retain their normal place in the module order. Compound predicates such as `#[cfg(all(test, feature = "extra"))]`
-are not treated as the conventional test module.
+The final class is recognized only for an inline module definition named `tests` with a direct `#[cfg(test)]` attribute.
+It must use private visibility. The out-of-line form `#[cfg(test)] mod tests;` remains an ordinary module declaration.
+Compound predicates such as `#[cfg(all(test, feature = "extra"))]` are not treated as conventional test modules.
 
 ### Why
 
@@ -54,23 +54,26 @@ the order in the tool ensures that the team's repositories share one convention.
 
 ### Scope and boundaries
 
-A run continues only across supported `use` and `mod` items. Any other Rust item ends the run, including a function,
-type, constant, or macro invocation.
+A run continues only across supported `use` items, out-of-line module declarations such as `mod parser;`, and the
+conventional inline test module. Any other Rust item ends the run, including an ordinary inline module definition such
+as `mod parser { ... }`, function, type, constant, or macro invocation. This preserves the source order and existing
+spacing of ordinary body-bearing modules.
 
 The only supported visibilities are private, `pub(crate)`, and `pub`. Restricted forms such as `pub(super)` and
 `pub(in path)` are not ordered and therefore end a run.
 
-The conventional test module is required to be last only within its contiguous run. This rule does not move it across
-functions, types, macros, or other items that end a run.
+The conventional inline test module is required to be last only within its contiguous run. This rule does not move it
+across ordinary inline modules, functions, types, macros, or other items that end a run.
 
-Outer attributes do not end a checker run and move with their item. Inline modules are checked recursively and
+Outer attributes do not end a checker run and move with their item. Ordinary inline modules end the surrounding run;
+the conventional inline test module is the explicit exception. All inline modules are checked recursively and
 independently, using the declarations in each module as that module's local scope.
 
 ### Comments within runs
 
-Ordinary line and block comments must not appear between items in an ordered `use`/`mod` run. Their ownership becomes
-ambiguous when the run is reordered, so they prevent `--fix` from changing anything in that run. While such a comment
-remains, the checker reports the comment instead of downstream order or spacing violations from the blocked run.
+Ordinary line and block comments must not appear between items in an ordered run. Their ownership becomes ambiguous
+when the run is reordered, so they prevent `--fix` from changing anything in that run. While such a comment remains,
+the checker reports the comment instead of downstream order or spacing violations from the blocked run.
 
 Use Rustdoc (`///`) when a comment documents the following item. Otherwise, move the comment outside the ordered run,
 such as after the import and module declarations.
@@ -95,26 +98,27 @@ const CAPACITY: usize = 16;
 use crate::Private;
 ```
 
-This is valid because `test_support` remains an ordinary private module while the conventional `tests` module ends the
-run:
+This is valid because `test_support` remains an ordinary private declaration while the conventional inline `tests`
+module ends the run:
 
 ```rust
 #[cfg(test)]
-mod test_support {}
+mod test_support;
 
-pub mod code_module {}
+pub mod code_module;
 
 #[cfg(test)]
 mod tests {}
 ```
 
-Writing `pub mod tests` or any other explicit visibility on the conventional test module is invalid.
+Writing `pub mod tests { ... }` or any other explicit visibility on the conventional inline test module is invalid.
 
 ### Automatic fixing
 
 `--fix` stably sorts a run by class and import origin. It moves outer attributes with their item, moves the conventional
-test module to the end of its run, and preserves the existing order inside one import group. It does not remove an
-invalid visibility from the test module; that diagnostic requires a manual change.
+inline test module to the end of its run, and preserves the existing order inside one import group. Other inline module
+definitions are not reordered. The fixer does not remove an invalid test-module visibility; that diagnostic requires a
+manual change.
 
 The fixer leaves an entire run unchanged when non-whitespace text occurs between its items. For ordinary comments, the
 checker reports the actionable comment diagnostic described above.

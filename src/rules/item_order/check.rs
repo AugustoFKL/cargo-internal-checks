@@ -553,14 +553,14 @@ mod tests {
     }
 
     #[test]
-    fn accepts_conventional_test_module_after_ordinary_modules() -> Result<()> {
+    fn accepts_inline_test_module_after_ordinary_module_declarations() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
             r#"
             #[cfg(test)]
-            mod test_support {}
+            mod test_support;
 
-            pub mod code_module {}
+            pub mod code_module;
 
             #[cfg(test)]
             mod tests {}
@@ -572,14 +572,14 @@ mod tests {
     }
 
     #[test]
-    fn requires_conventional_test_module_after_ordinary_modules() -> Result<()> {
+    fn requires_inline_test_module_after_ordinary_module_declarations() -> Result<()> {
         let violations = check_source(
             Path::new("lib.rs"),
             r#"
             #[cfg(test)]
             mod tests {}
 
-            pub mod code_module {}
+            pub mod code_module;
             "#,
         )?;
 
@@ -589,6 +589,45 @@ mod tests {
             &DiagnosticKind::ItemOrder(Violation::ItemOrder {
                 found: ItemClass::new(ItemKind::Mod, Visibility::Public),
                 must_precede: ItemClass::new(ItemKind::TestModule, Visibility::Private),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unrelated_item_ends_the_inline_test_module_run() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            mod tests {}
+
+            fn code() {}
+            "#,
+        )?;
+
+        assert!(violations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn treats_out_of_line_test_module_as_an_ordinary_declaration() -> Result<()> {
+        let violations = check_source(
+            Path::new("lib.rs"),
+            r#"
+            #[cfg(test)]
+            pub mod tests;
+
+            mod code_module;
+            "#,
+        )?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::ItemOrder {
+                found: ItemClass::new(ItemKind::Mod, Visibility::Private),
+                must_precede: ItemClass::new(ItemKind::Mod, Visibility::Public),
             })
         );
         Ok(())
