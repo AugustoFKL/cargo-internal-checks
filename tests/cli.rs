@@ -165,6 +165,65 @@ mod errors {
 }
 
 #[test]
+fn checks_and_fixes_spacing_between_attributed_module_declarations() -> std::io::Result<()> {
+    let source = r#"#[path = "api/helpers.rs"]
+mod helpers;
+
+#[path = "api/ngfhe.rs"]
+mod ngfhe;
+
+#[path = "api/bfv.rs"]
+mod bfv;
+
+#[path = "api/gbfv.rs"]
+mod gbfv;
+
+#[path = "api/ngfhe_float.rs"]
+mod ngfhe_float;
+
+#[cfg(feature = "cuda")]
+mod cuda;
+"#;
+    let expected = r#"#[path = "api/helpers.rs"]
+mod helpers;
+#[path = "api/ngfhe.rs"]
+mod ngfhe;
+#[path = "api/bfv.rs"]
+mod bfv;
+#[path = "api/gbfv.rs"]
+mod gbfv;
+#[path = "api/ngfhe_float.rs"]
+mod ngfhe_float;
+#[cfg(feature = "cuda")]
+mod cuda;
+"#;
+    let project = TestProject::new(source)?;
+
+    let output = project.run(&[])?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(
+        stderr
+            .matches("must not be separated by a blank line")
+            .count(),
+        5,
+        "{stderr}"
+    );
+    assert_eq!(fs::read_to_string(project.source_path())?, source);
+
+    let output = project.run(&["--fix"])?;
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(project.source_path())?, expected);
+
+    let output = project.run(&[])?;
+    assert_eq!(output.status.code(), Some(0));
+    let output = project.run(&["--fix"])?;
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(project.source_path())?, expected);
+    Ok(())
+}
+
+#[test]
 fn separates_diagnostics_from_different_files() -> std::io::Result<()> {
     let project = TestProject::new("pub struct Valid;\n")?;
     project.write(

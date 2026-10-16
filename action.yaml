@@ -1,0 +1,4 @@
+name: "Cargo internal checks"
+description: "Checks for specific cargo formatting decisions"
+
+runs:

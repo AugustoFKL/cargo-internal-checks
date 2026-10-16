@@ -34,7 +34,7 @@ pub(crate) enum Violation {
         current: ItemGroup,
     },
     #[display(
-        "imports with `{group}` origin and the same visibility must not be separated by a blank line"
+        "items in the `{group}` group with the same visibility must not be separated by a blank line"
     )]
     UnexpectedBlankLine { group: ItemGroup },
     #[display(
@@ -165,7 +165,7 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
         };
 
         let group_changed = current.class != previous.class || current_group != previous.group;
-        let has_blank_line = self.has_blank_line(previous.end_line, current.span.start().line);
+        let has_blank_line = self.has_blank_line(previous.end_line, current.full_span.start().line);
         if group_changed && !has_blank_line {
             self.report(
                 current.span,
@@ -174,7 +174,7 @@ impl<'a, 'source> ItemOrderChecker<'a, 'source> {
                     current: current_group,
                 },
             );
-        } else if !group_changed && current.import_key.is_some() && has_blank_line {
+        } else if !group_changed && has_blank_line {
             self.report(
                 current.span,
                 Violation::UnexpectedBlankLine {
@@ -419,6 +419,60 @@ mod tests {
             violations[0].kind(),
             DiagnosticKind::ItemOrder(Violation::MissingBlankLine { .. })
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_blank_lines_between_module_declarations_with_the_same_visibility() -> Result<()> {
+        for visibility in ["", "pub(crate) ", "pub "] {
+            for attribute in ["", "#[path = \"api/second.rs\"]\n"] {
+                let source =
+                    format!("{visibility}mod first;\n\n{attribute}{visibility}mod second;\n");
+                let violations = check_source(Path::new("lib.rs"), &source)?;
+
+                assert_eq!(violations.len(), 1, "{source}: {violations:?}");
+                assert_eq!(
+                    violations[0].kind(),
+                    &DiagnosticKind::ItemOrder(Violation::UnexpectedBlankLine {
+                        group: ItemGroup::Module,
+                    })
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ignores_blank_lines_inside_an_items_attributes() -> Result<()> {
+        let source = r#"mod first;
+#[cfg(feature = "optional")]
+
+#[path = "api/second.rs"]
+mod second;
+"#;
+        let violations = check_source(Path::new("lib.rs"), source)?;
+
+        assert!(violations.is_empty(), "{violations:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn requires_group_separator_before_the_first_attribute() -> Result<()> {
+        let source = r#"use crate::First;
+#[cfg(feature = "optional")]
+
+mod second;
+"#;
+        let violations = check_source(Path::new("lib.rs"), source)?;
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].kind(),
+            &DiagnosticKind::ItemOrder(Violation::MissingBlankLine {
+                previous: ItemGroup::Local,
+                current: ItemGroup::Module,
+            })
+        );
         Ok(())
     }
 

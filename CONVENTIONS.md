@@ -15,7 +15,7 @@ to `rustfmt`, another lint, or code review.
 | Inline `#[cfg(test)] mod tests` placement/privacy        |   Yes    |   Placement only   |
 | Standard-library, external, and local import order       |   Yes    |   Yes, when safe   |
 | Blank lines between item classes and import origins      |   Yes    |   Yes, when safe   |
-| No blank lines within one visibility/origin import group |   Yes    |   Yes, when safe   |
+| No blank lines within one item class/origin group        |   Yes    |   Yes, when safe   |
 | Alphabetical order inside one import group               |    No    | No; use `rustfmt`  |
 | Ordinary comments inside an ordered `use`/`mod` run      | Rejected |         No         |
 | Alphabetical error variants                              |   Yes    |   Yes, when safe   |
@@ -68,6 +68,9 @@ across ordinary inline modules, functions, types, macros, or other items that en
 Outer attributes do not end a checker run and move with their item. Ordinary inline modules end the surrounding run;
 the conventional inline test module is the explicit exception. All inline modules are checked recursively and
 independently, using the declarations in each module as that module's local scope.
+
+Consecutive out-of-line module declarations with the same visibility must not have an empty line between them,
+including declarations with outer attributes. Alphabetical ordering within that class is left to the project's formatter.
 
 ### Comments within runs
 
